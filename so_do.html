@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Bộ Sơ Đồ Đầy Đủ BRD - PRD - SRS | Hệ thống CaCalo</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Roboto, sans-serif;
+      background: #f4f6f9;
+      color: #1e293b;
+      margin: 0;
+      padding: 24px;
+    }
+
+    .header {
+      background: #0f172a;
+      color: #fff;
+      padding: 24px 32px;
+      border-radius: 12px;
+      margin-bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header h1 {
+      margin: 0 0 8px 0;
+      font-size: 24px;
+    }
+
+    .header p {
+      margin: 0;
+      color: #94a3b8;
+      font-size: 14px;
+    }
+
+    .btn {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+      margin-left: 8px;
+    }
+
+    .btn:hover {
+      background: #1d4ed8;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 28px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+      overflow-x: auto;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid #e2e8f0;
+      padding-bottom: 12px;
+      margin-bottom: 20px;
+    }
+
+    .card-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #0f172a;
+      margin: 0;
+    }
+
+    .badge {
+      background: #dbeafe;
+      color: #1e40af;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      margin-right: 8px;
+    }
+
+    .mermaid {
+      display: flex;
+      justify-content: center;
+      min-width: 750px;
+      padding: 12px 0;
+    }
+
+    @media print {
+
+      .btn,
+      .no-print {
+        display: none !important;
+      }
+
+      .card {
+        page-break-inside: avoid;
+        box-shadow: none;
+        border: 1px solid #cbd5e1;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="header">
+    <div>
+      <h1>CaCalo — Bộ Sơ Đồ Đặc Tả Hệ Thống Đầy Đủ (BRD • PRD • SRS)</h1>
+      <p>Bao gồm 9 sơ đồ trực quan hóa toàn bộ 22 chức năng (5 Module) & Kiến trúc kiểm soát AI</p>
+    </div>
+    <div class="no-print">
+      <button class="btn" onclick="window.print()">🖨️ In / Lưu trọn bộ ra PDF</button>
+    </div>
+  </div>
+
+  <!-- SƠ ĐỒ 1 -->
+  <div class="card" id="card-1">
+    <div class="card-header">
+      <h2 class="card-title"><span class="badge">ALL-IN-ONE</span> 1. Sơ đồ Tổng thể Hệ thống CaCalo (5 Module - 22 Chức
+        năng)</h2>
+      <button class="btn no-print" onclick="downloadSVG('card-1', '1_CaCalo_Master_All_In_One.svg')">⬇️ Tải ảnh
+        SVG</button>
+    </div>
+    <div class="mermaid">
+      flowchart TB
+      subgraph Actors ["1. TÁC NHÂN HỆ THỐNG (ACTORS)"]
+      User["Người dùng (User): Tính BMI/TDEE, chụp ảnh món ăn, khai báo nguyên liệu, hỏi Chatbot & ghi nhật ký"]
+      Admin["Quản trị viên (Admin): Quản lý CSDL, duyệt công thức, duyệt dữ liệu sửa lỗi AI & thống kê"]
+      end
+      subgraph Frontend ["2. CÁC MODULE CHỨC NĂNG SẢN PHẨM (22 CHỨC NĂNG)"]
+      M1["Module 1: Tài khoản & Chỉ số cơ thể (CC-1.1 đến CC-1.3)"]
+      M2["Module 2: Nhận diện món ăn qua ảnh & Tính Calo (CC-2.1 đến CC-2.8)"]
+      M3["Module 3: Gợi ý món từ nguyên liệu & Chatbot AI (CC-3.1 đến CC-3.5)"]
+      M4["Module 4: Nhật ký ăn uống & Dashboard (CC-4.1 đến CC-4.3)"]
+      M5["Module 5: Quản trị CSDL, Công thức & Mô hình AI (CC-5.1 đến CC-5.3)"]
+      end
+      subgraph Backend ["3. TẦNG XỬ LÝ TỰ ĐỘNG & CSDL CHUẨN"]
+      CV["Computer Vision: Nhận diện 30-50 món Việt (Top-1 >=75%, Top-3 >=90%)"]
+      Calc["Calculation & Recommendation Engine: Tính BMI/BMR/TDEE, Calo/Macro (Base Unit: g/ml) & Lọc cứng dị ứng"]
+      LLM["LLM / RAG Assistant: Phân tích ngữ cảnh & Function Calling (Không tự bịa số Calo)"]
+      DB[("CSDL Chuẩn: Viện Dinh dưỡng VN / USDA")]
+      end
+      User --> M1 & M2 & M3 & M4
+      Admin --> M5
+      M2 <--> CV
+        M1 & M2 & M3 & M4 <--> Calc
+          M3 <--> LLM
+            LLM <--> Calc
+              Calc <--> DB
+                M5 <--> DB
+    </div>
+  </div>
+
+  <!-- SƠ ĐỒ 2 -->
+  <div class="card" id="card-2">
+    <div class="card-header">
+      <h2 class="card-title"><span class="badge">BRD</span> 2. Sơ đồ Ngữ cảnh Nghiệp vụ & Luồng End-to-End 4 Giai đoạn
+      </h2>
+      <button class="btn no-print" onclick="downloadSVG('card-2', '2_BRD_End_To_End_Workflow.svg')">⬇️ Tải ảnh
+        SVG</button>
+    </div>
+    <div class="mermaid">
+      flowchart LR
+      subgraph S1 ["GĐ 1: Thiết lập Hồ sơ"]
+      A1["Đăng nhập & Nhập chiều cao, cân nặng, tuổi, giới tính, vận động"] --> A2["Tính BMI, BMR, TDEE & Ngân sách
+      Calo/Macro"] --> A3["Khai báo Dị ứng (Ràng buộc cứng) & Sở thích"]
+      end
+      subgraph S2 ["GĐ 2: Luồng 1 - Chụp ảnh tính Calo"]
+      B1["Chụp/Tải ảnh món ăn lên Web"] --> B2["AI nhận diện tên món (Top-3)"] --> B3["Chọn khẩu phần S/M/L/g & sửa
+      topping"] --> B4["Tính Calo & Macro chuẩn từ CSDL"]
+      end
+      subgraph S3 ["GĐ 3: Luồng 2 - Gợi ý món & Hỏi đáp"]
+      C1["Nhập nguyên liệu sẵn có hoặc hỏi Chatbot"] --> C2["Đối chiếu Calo còn lại, BMI & loại 100% dị ứng"] --> C3["Đề
+      xuất món ăn kèm công thức & định lượng Calo"]
+      end
+      subgraph S4 ["GĐ 4: Theo dõi & Cải thiện"]
+      D1["Lưu Nhật ký bữa ăn & cập nhật Dashboard"] --> D2["Ghi nhận log người dùng sửa nhãn AI sai"] --> D3["Admin
+      duyệt & huấn luyện lại mô hình"]
+      end
+      A3 --> B1 & C1
+      B4 & C3 --> D1
+    </div>
+  </div>
+
+  <!-- SƠ ĐỒ 3 (ĐÃ SỬA LỖI SYNTAX & TÔ MÀU MOSCOW) -->
+  <div class="card" id="card-3">
+    <div class="card-header">
+      <h2 class="card-title"><span class="badge">PRD</span> 3. Sơ đồ Phân rã 22 Chức năng theo độ ưu tiên MoSCoW</h2>
+      <button class="btn no-print" onclick="downloadSVG('card-3', '3_PRD_MoSCoW_Breakdown.svg')">⬇️ Tải ảnh SVG</button>
+    </div>
+    <div class="mermaid">
+      flowchart LR
+      Root(["🎯 HỆ THỐNG CACALO<br />(22 Chức năng - 5 Module)"])
+
+      subgraph M1 ["Module 1: Tài khoản & Chỉ số cơ thể"]
+      F1_1["[Bắt buộc] CC-1.1: Đăng ký, đăng nhập, quên MK & OAuth"]:::must
+      F1_2["[Bắt buộc] CC-1.2: Tính BMI, BMR, TDEE & mục tiêu"]:::must
+      F1_3["[Nên có] CC-1.3: Chế độ ăn, dị ứng & sở thích"]:::should
+      end
+
+      subgraph M2 ["Module 2: Nhận diện món ăn & Tính Calo"]
+      F2_1["[Bắt buộc] CC-2.1: Tải ảnh hoặc chụp ảnh trên Web"]:::must
+      F2_2["[Bắt buộc] CC-2.2: Nhận diện món ăn bằng AI Vision"]:::must
+      F2_3["[Bắt buộc] CC-2.3: Ước lượng & chỉnh khẩu phần S/M/L/g"]:::must
+      F2_4["[Bắt buộc] CC-2.4: Tính Calo, Macro & dinh dưỡng"]:::must
+      F2_5["[Bắt buộc] CC-2.5: Chỉnh sửa kết quả & phản hồi AI"]:::must
+      F2_7["[Bắt buộc] CC-2.7: Tìm kiếm không dấu & nhập tay"]:::must
+      F2_6["[Nên có] CC-2.6: Nhận diện nhiều món (Mâm cơm)"]:::should
+      F2_8["[Mở rộng] CC-2.8: Tự tạo món ăn cá nhân"]:::could
+      end
+
+      subgraph M3 ["Module 3: Gợi ý món từ tủ bếp & Chatbot"]
+      F3_1["[Bắt buộc] CC-3.1: Khai báo nhanh nguyên liệu sẵn có"]:::must
+      F3_2["[Bắt buộc] CC-3.2: Đề xuất món ăn theo mục tiêu Calo"]:::must
+      F3_3["[Bắt buộc] CC-3.3: Xem công thức & quy đổi theo phần"]:::must
+      F3_4["[Bắt buộc] CC-3.4: Chatbot AI hỏi đáp dinh dưỡng"]:::must
+      F3_5["[Mở rộng] CC-3.5: Đề xuất món thay thế lành mạnh"]:::could
+      end
+
+      subgraph M4 ["Module 4: Nhật ký & Dashboard"]
+      F4_1["[Bắt buộc] CC-4.1: Ghi nhật ký ăn uống theo bữa"]:::must
+      F4_2["[Bắt buộc] CC-4.2: Dashboard dinh dưỡng trong ngày"]:::must
+      F4_3["[Nên có] CC-4.3: Biểu đồ lịch sử Calo, cân nặng & BMI"]:::should
+      end
+
+      subgraph M5 ["Module 5: Quản trị hệ thống"]
+      F5_1["[Bắt buộc] CC-5.1: Quản lý CSDL món ăn & nguyên liệu"]:::must
+      F5_2["[Nên có] CC-5.2: Quản lý & kiểm duyệt công thức"]:::should
+      F5_3["[Mở rộng] CC-5.3: Duyệt sửa lỗi AI & thống kê mô hình"]:::could
+      end
+
+      Root --> M1 & M2 & M3 & M4 & M5
+
+      classDef must fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d;
+      classDef should fill:#fef9c3,stroke:#ca8a04,stroke-width:1.5px,color:#713f12;
+      classDef could fill:#f3e8ff,stroke:#9333ea,stroke-width:1.5px,color:#581c87;
+    </div>
+  </div>
+
+
+
+
+  <!-- SƠ ĐỒ 6 -->
+  <div class="card" id="card-6">
+    <div class="card-header">
+      <h2 class="card-title"><span class="badge">PRD / SRS</span> 6. Luồng Module 3: Gợi ý Món từ Tủ bếp & Chatbot AI
+        Guardrails</h2>
+      <button class="btn no-print" onclick="downloadSVG('card-6', '6_Module3_Recommendation_Chatbot.svg')">⬇️ Tải ảnh
+        SVG</button>
+    </div>
+    <div class="mermaid">
+      flowchart TD
+      U["Người dùng vào Module 3"] --> Act1["CC-3.1: Khai báo nguyên liệu sẵn có trong tủ/bếp"]
+      U --> Act2["CC-3.4: Đặt câu hỏi cho Chatbot AI dinh dưỡng"]
+      Act1 & Act2 --> Filter["Lọc cứng 100% món chứa chất Dị ứng hoặc chưa gán nhãn thành phần (CC-1.3)"]
+      Filter --> Rec["CC-3.2: Chấm điểm gợi ý món khớp Calo còn lại trong ngày & BMI"]
+      Filter --> RAG["LLM gọi Function Calling / RAG lấy số liệu từ Calculation Engine (Cấm tự bịa số Calo)"]
+      Rec --> Recipe["CC-3.3: Xem công thức chi tiết & quy đổi dinh dưỡng theo phần ăn"]
+      RAG --> Swap["CC-3.5: Đề xuất món ăn / đồ uống thay thế lành mạnh hơn"]
+    </div>
+  </div>
+
+  <!-- SƠ ĐỒ 7 -->
+  <div class="card" id="card-7">
+    <div class="card-header">
+      <h2 class="card-title"><span class="badge">PRD / SRS</span> 7. Luồng Module 4 & Module 5: Nhật ký, Dashboard &
+        Quản trị AI</h2>
+      <button class="btn no-print" onclick="downloadSVG('card-7', '7_Module4_Module5_Dashboard_Admin.svg')">⬇️ Tải ảnh
+        SVG</button>
+    </div>
+    <div class="mermaid">
+      flowchart LR
+      subgraph M4 ["Module 4: Nhật ký & Dashboard"]
+      L1["CC-4.1: Lưu nhật ký theo bữa (Sáng/Trưa/Tối/Phụ)"] --> L2["CC-4.2: Dashboard thanh tiến độ Calo & Macro
+      ngày"] --> L3["CC-4.3: Biểu đồ lịch sử Calo, cân nặng & BMI"]
+      end
+      subgraph M5 ["Module 5: Quản trị viên (Admin)"]
+      A1["CC-5.1: Quản lý CSDL món ăn & nguyên liệu (Đơn vị gốc g/ml)"]
+      A2["CC-5.2: Kiểm duyệt công thức nấu ăn"]
+      A3["CC-5.3: Duyệt log người dùng sửa lỗi AI, xuất Confusion Matrix & Huấn luyện lại"]
+      end
+      L1 -.->|"Gửi log sửa nhãn AI (CC-2.5)"| A3
+    </div>
+  </div>
+
+  <!-- SƠ ĐỒ 8 -->
+  <div class="card" id="card-8">
+    <div class="card-header">
+      <h2 class="card-title"><span class="badge">SRS</span> 8. Sơ đồ Tuần tự (Sequence Diagram) — Nhận diện Ảnh & Tính
+        Calo (&le; 5 giây)</h2>
+      <button class="btn no-print" onclick="downloadSVG('card-8', '8_SRS_Sequence_Diagram.svg')">⬇️ Tải ảnh
+        SVG</button>
+    </div>
+    <div class="mermaid">
+      sequenceDiagram
+      autonumber
+      actor U as Người dùng
+      participant W as Web Client
+      participant S as Server & Calc Engine
+      participant CV as AI Vision
+      participant DB as Database Chuẩn
+
+      U->>W: Chụp/Tải ảnh món ăn (CC-2.1)
+      W->>W: Kiểm tra <=10MB & Nén ảnh <=1280px W->>S: Tải ảnh lên Server
+        S->>CV: Phân tích nhận diện món ăn (CC-2.2)
+        CV-->>S: Trả về Top-3 nhãn + Confidence Score
+        S->>DB: Truy vấn khẩu phần chuẩn (1.0x) & dinh dưỡng trên 100g
+        DB-->>S: Dữ liệu chuẩn (Viện Dinh dưỡng / USDA)
+        S->>S: Tính Calo = (Khối lượng g / 100) * Dinh dưỡng 100g
+        S-->>W: Hiển thị kết quả (Tổng thời gian <= 5s) U->>W: Đổi khẩu phần S/M/L (CC-2.3) hoặc Topping (CC-2.5)
+          W->>W: Tính lại tức thời Calo & Macro (<200ms) U->>W: Lưu Nhật ký (CC-4.1)
+            W->>DB: Lưu meal_logs & ai_feedback_logs
+    </div>
+  </div>
+
+  <!-- SƠ ĐỒ 9 -->
+  <div class="card" id="card-9">
+    <div class="card-header">
+      <h2 class="card-title"><span class="badge">SRS</span> 9. Sơ đồ Thực thể Liên kết Cơ sở dữ liệu (ERD)</h2>
+      <button class="btn no-print" onclick="downloadSVG('card-9', '9_SRS_Database_ERD.svg')">⬇️ Tải ảnh SVG</button>
+    </div>
+    <div class="mermaid">
+      erDiagram
+      USERS ||--o| USER_PROFILES : "CC-1.2"
+      USERS ||--o{ USER_DIET_ALLERGIES : "CC-1.3"
+      USERS ||--o{ MEAL_LOGS : "CC-4.1"
+      USERS ||--o{ CUSTOM_FOODS : "CC-2.8"
+      USERS ||--o{ AI_FEEDBACK_LOGS : "CC-2.5"
+      FOODS ||--o{ FOOD_UNIT_CONVERSIONS : "CC-2.3"
+      FOODS ||--o{ RECIPES : "CC-3.3"
+
+      USERS {
+      uuid id PK
+      string email UK
+      string password_hash "bcrypt/Argon2"
+      int failed_attempts "Khoa_15p_neu_5_lan"
+      }
+      USER_PROFILES {
+      uuid user_id PK
+      float height_cm "100-250"
+      float weight_kg "20-300"
+      float bmi
+      float bmr
+      float tdee
+      float target_kcal "Nu_1200_Nam_1500"
+      }
+      FOODS {
+      uuid id PK
+      string name_vi "Tim_khong_dau"
+      string base_unit "g_hoac_ml"
+      float kcal_per_100g
+      string data_source "VDD_USDA"
+      }
+      AI_FEEDBACK_LOGS {
+      uuid id PK
+      string ai_predicted_label
+      string user_corrected_label
+      string review_status "CC-5.3"
+      }
+    </div>
+  </div>
+
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose' });
+
+    function downloadSVG(cardId, filename) {
+      const svgEl = document.querySelector(`#${cardId} svg`);
+      if (!svgEl) return alert('Sơ đồ đang được tạo, vui lòng thử lại sau 1 giây!');
+      const serializer = new XMLSerializer();
+      let source = serializer.serializeToString(svgEl);
+      if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+        source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+      }
+      const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  </script>
+</body>
+
+</html>
