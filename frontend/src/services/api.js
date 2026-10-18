@@ -76,12 +76,58 @@ export const getTodayMealLogs = async () => {
  */
 export const submitAIFeedback = async (feedbackData) => {
   try {
-    return await apiClient.post('/feedback/ai', feedbackData);
+    return await apiClient.post('/vision/feedback', feedbackData);
   } catch (error) {
     console.error('Lỗi gửi feedback AI:', error);
     throw error;
   }
 };
 
+/**
+ * MỤC ĐÍCH: Gửi tệp ảnh món ăn lên Backend FastAPI để nhận diện AI qua Computer Vision.
+ * ĐẦU VÀO: File hoặc Blob ảnh
+ * ĐẦU RA: { success: true, confidence_tier: 'high'|'medium'|'low', candidates: [...] }
+ */
+export const predictFoodImage = async (fileOrBlob) => {
+  try {
+    const formData = new FormData();
+    formData.append('file', fileOrBlob, 'food_capture.jpg');
+    return await apiClient.post('/vision/predict', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+  } catch (error) {
+    console.error('Lỗi nhận diện ảnh:', error);
+    throw error;
+  }
+};
+
+/**
+ * MỤC ĐÍCH: Tính toán số học Calo và Macro chuẩn xác từ PostgreSQL.
+ * ĐẦU VÀO: { food_id, portion_size, custom_gram, topping_ids }
+ */
+export const calculateNutrition = async (params) => {
+  try {
+    return await apiClient.post('/nutrition/calculate', params);
+  } catch (error) {
+    console.error('Lỗi tính toán dinh dưỡng:', error);
+    throw error;
+  }
+};
+
+/**
+ * MỤC ĐÍCH: Tìm kiếm nhanh món ăn trong PostgreSQL theo từ khóa.
+ */
+export const searchFoods = async (keyword) => {
+  try {
+    return await apiClient.get('/foods/search', { params: { q: keyword } });
+  } catch (error) {
+    console.error('Lỗi tìm kiếm món ăn:', error);
+    return { query: keyword, total: 0, data: [] };
+  }
+};
+
 export default apiClient;
+
 

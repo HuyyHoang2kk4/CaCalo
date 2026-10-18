@@ -33,9 +33,3 @@ try:
     print("=" * 60)
 except Exception as e:
     print(f"❌ KẾT NỐI THẤT BẠI:")
-    print(str(e))
-    print("=" * 60)
-    print("💡 Gợi ý kiểm tra:")
-    print("1. Đã tạo database tên 'cacalo_db' trong pgAdmin4 chưa?")
-    print("2. Mật khẩu user 'postgres' trong file .env đã điền đúng chưa?")
-    print("3. Port 5432 có đúng không?")
