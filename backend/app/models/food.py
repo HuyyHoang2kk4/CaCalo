@@ -1,8 +1,9 @@
 """
 Model định nghĩa Món ăn (Food), Bảng dinh dưỡng chuẩn 100g (FoodNutrition),
 Khẩu phần chuẩn (FoodServing), và Topping ăn kèm (FoodTopping).
+Tối ưu hóa cho PostgreSQL: Sử dụng Numeric để đảm bảo độ chính xác tuyệt đối của dinh dưỡng.
 """
-from sqlalchemy import Column, String, Integer, Float, Boolean, ForeignKey, Text
+from sqlalchemy import Column, String, Integer, Numeric, Boolean, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -31,14 +32,14 @@ class FoodNutrition(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     food_id = Column(Integer, ForeignKey("foods.id", ondelete="CASCADE"), unique=True, nullable=False)
 
-    per_gram = Column(Float, default=100.0)  # Chuẩn hóa trên 100g
-    calories_kcal = Column(Float, nullable=False)
-    protein_g = Column(Float, nullable=False)
-    carb_g = Column(Float, nullable=False)
-    fat_g = Column(Float, nullable=False)
-    fiber_g = Column(Float, default=0.0)
-    sugar_g = Column(Float, default=0.0)
-    sodium_mg = Column(Float, default=0.0)
+    per_gram = Column(Numeric(6, 1), default=100.0)  # Chuẩn hóa trên 100g
+    calories_kcal = Column(Numeric(6, 1), nullable=False)
+    protein_g = Column(Numeric(5, 1), nullable=False)
+    carb_g = Column(Numeric(5, 1), nullable=False)
+    fat_g = Column(Numeric(5, 1), nullable=False)
+    fiber_g = Column(Numeric(5, 1), default=0.0)
+    sugar_g = Column(Numeric(5, 1), default=0.0)
+    sodium_mg = Column(Numeric(7, 1), default=0.0)
 
     food = relationship("Food", back_populates="nutrition")
 
@@ -50,7 +51,7 @@ class FoodServing(Base):
     food_id = Column(Integer, ForeignKey("foods.id", ondelete="CASCADE"), nullable=False)
 
     unit_name = Column(String(50), nullable=False)  # "Tô vừa", "Bát", "Đĩa", "Cái", "Gói"
-    weight_gram = Column(Float, nullable=False)  # Khối lượng quy đổi chuẩn ra gram
+    weight_gram = Column(Numeric(6, 1), nullable=False)  # Khối lượng quy đổi chuẩn ra gram
     is_default = Column(Boolean, default=False)  # Là khẩu phần chuẩn mặc định (Cỡ vừa 1.0x)
 
     food = relationship("Food", back_populates="servings")
@@ -63,10 +64,11 @@ class FoodTopping(Base):
     food_id = Column(Integer, ForeignKey("foods.id", ondelete="CASCADE"), nullable=False)
 
     name = Column(String(100), nullable=False)  # "+1 Trứng chần", "+1 Quẩy giòn", "Bỏ nước béo"
-    weight_gram = Column(Float, default=0.0)
-    calories_kcal = Column(Float, default=0.0)
-    protein_g = Column(Float, default=0.0)
-    carb_g = Column(Float, default=0.0)
-    fat_g = Column(Float, default=0.0)
+    weight_gram = Column(Numeric(6, 1), default=0.0)
+    calories_kcal = Column(Numeric(6, 1), default=0.0)
+    protein_g = Column(Numeric(5, 1), default=0.0)
+    carb_g = Column(Numeric(5, 1), default=0.0)
+    fat_g = Column(Numeric(5, 1), default=0.0)
 
     food = relationship("Food", back_populates="toppings")
+

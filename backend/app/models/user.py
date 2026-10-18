@@ -1,9 +1,11 @@
 """
 Model định nghĩa Người dùng (User) và Hồ sơ thể trạng / Dinh dưỡng (UserProfile).
+Tối ưu hóa cho PostgreSQL: JSONB cho danh sách dị ứng, Numeric cho các chỉ số cơ thể.
 """
 import uuid
-from datetime import datetime
-from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Text
+from datetime import datetime, timezone
+from sqlalchemy import Column, String, Integer, Numeric, DateTime, ForeignKey
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -16,7 +18,7 @@ class User(Base):
     full_name = Column(String(100), nullable=False)
     role = Column(String(20), default="user")  # 'user' hoặc 'admin'
     avatar_url = Column(String(500), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     # Quan hệ 1-1 với Hồ sơ thể trạng
     profile = relationship("UserProfile", back_populates="user", uselist=False, cascade="all, delete-orphan")
@@ -34,26 +36,27 @@ class UserProfile(Base):
 
     gender = Column(String(10), default="male")  # 'male' hoặc 'female'
     birth_year = Column(Integer, default=2000)
-    height_cm = Column(Float, nullable=False, default=170.0)
-    weight_kg = Column(Float, nullable=False, default=65.0)
-    activity_level = Column(Float, default=1.375)  # 1.2: Ít vận động, 1.375: Nhẹ, 1.55: Vừa, 1.725: Nặng, 1.9: Rất nặng
+    height_cm = Column(Numeric(5, 1), nullable=False, default=170.0)
+    weight_kg = Column(Numeric(5, 1), nullable=False, default=65.0)
+    activity_level = Column(Numeric(4, 3), default=1.375)  # 1.2, 1.375, 1.55, 1.725, 1.9
     goal = Column(String(20), default="maintain")  # 'lose_weight', 'maintain', 'gain_weight'
     diet_type = Column(String(30), default="normal")  # 'normal', 'vegetarian', 'vegan', 'lowcarb'
 
-    # Ràng buộc an toàn: Dị ứng thực phẩm và nguyên liệu không thích (lưu dạng chuỗi JSON)
-    allergies = Column(Text, default="[]")  # Danh sách dị ứng: ["seafood", "peanut", "milk", ...]
-    disliked_ingredients = Column(Text, default="[]")  # Nguyên liệu ghét: ["hành lá", "mắm tôm", ...]
+    # Ràng buộc an toàn: Dị ứng thực phẩm và nguyên liệu không thích (JSONB chuẩn PostgreSQL)
+    allergies = Column(JSONB, default=list)  # Danh sách dị ứng: ["seafood", "peanut", "milk", ...]
+    disliked_ingredients = Column(JSONB, default=list)  # Nguyên liệu ghét: ["hành lá", "mắm tôm", ...]
 
     # Chỉ số tính toán tự động
-    bmi = Column(Float, nullable=True)
-    bmr = Column(Float, nullable=True)
-    tdee = Column(Float, nullable=True)
-    target_calories = Column(Float, nullable=True)
-    target_protein_g = Column(Float, nullable=True)
-    target_carb_g = Column(Float, nullable=True)
-    target_fat_g = Column(Float, nullable=True)
+    bmi = Column(Numeric(4, 1), nullable=True)
+    bmr = Column(Numeric(6, 1), nullable=True)
+    tdee = Column(Numeric(6, 1), nullable=True)
+    target_calories = Column(Numeric(6, 1), nullable=True)
+    target_protein_g = Column(Numeric(6, 1), nullable=True)
+    target_carb_g = Column(Numeric(6, 1), nullable=True)
+    target_fat_g = Column(Numeric(6, 1), nullable=True)
 
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # Quan hệ ngược lại với User
     user = relationship("User", back_populates="profile")
+

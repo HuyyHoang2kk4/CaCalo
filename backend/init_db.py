@@ -17,19 +17,24 @@ from sqlalchemy import inspect
 from app.database import engine, Base
 import app.models  # Import toàn bộ models để SQLAlchemy nhận diện metadata
 
-def init_database():
+def init_database(reset: bool = False):
     print("=" * 60)
-    print("🚀 BẮT ĐẦU KHỞI TẠO CƠ SỞ DỮ LIỆU CACALO...")
+    print("🚀 BẮT ĐẦU KHỞI TẠO CƠ SỞ DỮ LIỆU CACALO (POSTGRESQL)...")
     print("=" * 60)
 
-    # Tạo tất cả các bảng
+    if reset:
+        print("⚠️ PHÁT HIỆN THAM SỐ --reset: Đang xóa các bảng cũ để làm mới Schema...")
+        Base.metadata.drop_all(bind=engine)
+        print("✅ Đã xóa toàn bộ bảng cũ thành công.")
+
+    # Tạo tất cả các bảng theo Schema mới nhất
     Base.metadata.create_all(bind=engine)
 
     # Kiểm tra danh sách bảng đã được tạo
     inspector = inspect(engine)
     table_names = inspector.get_table_names()
 
-    print(f"✅ ĐÃ TẠO THÀNH CÔNG {len(table_names)} BẢNG TRONG DATABASE:")
+    print(f"✅ ĐÃ ĐỒNG BỘ THÀNH CÔNG {len(table_names)} BẢNG TRONG POSTGRESQL:")
     for idx, table in enumerate(table_names, 1):
         columns = inspector.get_columns(table)
         print(f"  {idx:2d}. Bảng: [{table}] ({len(columns)} cột)")
@@ -39,4 +44,6 @@ def init_database():
     print("=" * 60)
 
 if __name__ == "__main__":
-    init_database()
+    should_reset = "--reset" in sys.argv
+    init_database(reset=should_reset)
+

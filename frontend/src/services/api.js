@@ -47,4 +47,41 @@ export const getFoods = async () => {
   }
 };
 
+/**
+ * MỤC ĐÍCH: Lưu bữa ăn vào PostgreSQL (bảng meal_logs & meal_log_items).
+ */
+export const createMealLog = async (mealData) => {
+  try {
+    return await apiClient.post('/meal-logs', mealData);
+  } catch (error) {
+    console.error('Lỗi lưu nhật ký bữa ăn:', error);
+    throw error;
+  }
+};
+
+/**
+ * MỤC ĐÍCH: Lấy dữ liệu các bữa ăn hôm nay hiển thị lên Dashboard.
+ */
+export const getTodayMealLogs = async () => {
+  try {
+    return await apiClient.get('/meal-logs/today');
+  } catch (error) {
+    console.error('Lỗi lấy nhật ký hôm nay:', error);
+    return { total_calories: 0, total_protein: 0, total_carb: 0, total_fat: 0, items: [] };
+  }
+};
+
+/**
+ * MỤC ĐÍCH: Gửi phản hồi người dùng sửa lỗi AI vào PostgreSQL (bảng ai_feedback_logs).
+ */
+export const submitAIFeedback = async (feedbackData) => {
+  try {
+    return await apiClient.post('/feedback/ai', feedbackData);
+  } catch (error) {
+    console.error('Lỗi gửi feedback AI:', error);
+    throw error;
+  }
+};
+
 export default apiClient;
+

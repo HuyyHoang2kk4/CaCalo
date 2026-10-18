@@ -296,7 +296,7 @@ def seed():
             recipe = Recipe(
                 title=rec["title"],
                 description=rec["desc"],
-                instructions=json.dumps(rec["steps"], ensure_ascii=False),
+                instructions=rec["steps"],  # Lưu trực tiếp Python list vào JSONB
                 prep_time_minutes=rec["prep"],
                 cook_time_minutes=rec["cook"],
                 total_calories=rec["cal"],
@@ -338,8 +338,8 @@ def seed():
             activity_level=1.375,
             goal="maintain",
             diet_type="normal",
-            allergies=json.dumps([]),
-            disliked_ingredients=json.dumps(["hành lá"]),
+            allergies=[],  # JSONB lưu list trực tiếp
+            disliked_ingredients=["hành lá"],  # JSONB lưu list trực tiếp
             bmi=22.2,
             bmr=1640.0,
             tdee=2255.0,
