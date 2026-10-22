@@ -14,6 +14,15 @@ const apiClient = axios.create({
   },
 });
 
+// Tự động gắn Bearer Token nếu người dùng đã đăng nhập
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem('cacalo_token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 // Interceptor bắt lỗi toàn cục
 apiClient.interceptors.response.use(
   (response) => response.data,
@@ -126,6 +135,81 @@ export const searchFoods = async (keyword) => {
     console.error('Lỗi tìm kiếm món ăn:', error);
     return { query: keyword, total: 0, data: [] };
   }
+};
+
+/**
+ * MỤC ĐÍCH: Đăng nhập tài khoản người dùng.
+ * ĐẦU VÀO: { email, password }
+ */
+export const loginUser = async (credentials) => {
+  try {
+    const res = await apiClient.post('/auth/login', credentials);
+    if (res.token) {
+      localStorage.setItem('cacalo_token', res.token);
+    }
+    return res;
+  } catch (error) {
+    const msg = error.response?.data?.detail || 'Đăng nhập không thành công';
+    throw new Error(msg);
+  }
+};
+
+/**
+ * MỤC ĐÍCH: Đăng ký tài khoản người dùng mới kèm hồ sơ dinh dưỡng ban đầu.
+ */
+export const registerUser = async (userData) => {
+  try {
+    const res = await apiClient.post('/auth/register', userData);
+    if (res.token) {
+      localStorage.setItem('cacalo_token', res.token);
+    }
+    return res;
+  } catch (error) {
+    const msg = error.response?.data?.detail || 'Đăng ký không thành công';
+    throw new Error(msg);
+  }
+};
+
+/**
+ * MỤC ĐÍCH: Lấy thông tin người dùng đang đăng nhập từ token.
+ */
+export const getCurrentUser = async () => {
+  try {
+    return await apiClient.get('/auth/me');
+  } catch (error) {
+    return null;
+  }
+};
+
+/**
+ * MỤC ĐÍCH: Lấy hồ sơ thể trạng và mục tiêu calo (có fallback tài khoản demo).
+ */
+export const getUserProfile = async () => {
+  try {
+    return await apiClient.get('/user/profile');
+  } catch (error) {
+    console.error('Lỗi lấy hồ sơ người dùng:', error);
+    return null;
+  }
+};
+
+/**
+ * MỤC ĐÍCH: Cập nhật hồ sơ thể trạng và tự động tính lại BMI, BMR, TDEE, Calo mục tiêu.
+ */
+export const updateUserProfile = async (profileData) => {
+  try {
+    return await apiClient.put('/user/profile', profileData);
+  } catch (error) {
+    const msg = error.response?.data?.detail || 'Cập nhật hồ sơ thất bại';
+    throw new Error(msg);
+  }
+};
+
+/**
+ * MỤC ĐÍCH: Đăng xuất người dùng.
+ */
+export const logoutUser = () => {
+  localStorage.removeItem('cacalo_token');
 };
 
 export default apiClient;

@@ -4,7 +4,7 @@ Cung cấp CORS middleware và các API endpoints: Món ăn, Ghi nhật ký bữ
 """
 from datetime import date, datetime, timezone
 from typing import List, Optional, Any
-from fastapi import FastAPI, Depends, HTTPException, Query, File, UploadFile
+from fastapi import FastAPI, Depends, HTTPException, Query, File, UploadFile, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -13,7 +13,11 @@ from sqlalchemy import text
 from app.database import get_db
 from app.models import (
     Food, FoodNutrition, FoodServing, FoodTopping,
-    MealLog, MealLogItem, AIFeedbackLog, User
+    MealLog, MealLogItem, AIFeedbackLog, User, UserProfile
+)
+from app.services.auth_service import (
+    hash_password, verify_password, generate_token, verify_token,
+    calculate_health_metrics, format_user_response
 )
 
 app = FastAPI(
@@ -75,6 +79,61 @@ class AIFeedbackInput(BaseModel):
     user_corrected_label: str
     corrected_food_id: Optional[int] = None
 
+class RegisterInput(BaseModel):
+    email: str
+    password: str
+    full_name: str
+    gender: Optional[str] = "male"
+    birth_year: Optional[int] = 2000
+    height_cm: Optional[float] = 170.0
+    weight_kg: Optional[float] = 65.0
+    activity_level: Optional[float] = 1.375
+    goal: Optional[str] = "maintain"
+    diet_type: Optional[str] = "normal"
+    allergies: Optional[List[str]] = []
+    disliked_ingredients: Optional[List[str]] = []
+
+class LoginInput(BaseModel):
+    email: str
+    password: str
+
+class UpdateProfileInput(BaseModel):
+    full_name: Optional[str] = None
+    gender: Optional[str] = None
+    birth_year: Optional[int] = None
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    activity_level: Optional[float] = None
+    goal: Optional[str] = None
+    diet_type: Optional[str] = None
+    allergies: Optional[List[str]] = None
+    disliked_ingredients: Optional[List[str]] = None
+
+
+# --- Phụ thuộc xác thực người dùng (Auth Dependencies) ---
+
+def get_current_user_optional(
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    """Lấy người dùng hiện tại từ Bearer token (nếu có), hỗ trợ fallback mượt mà."""
+    if not authorization:
+        return None
+    token = authorization.replace("Bearer ", "").strip()
+    user_id = verify_token(token)
+    if not user_id:
+        return None
+    return db.query(User).filter(User.id == user_id).first()
+
+def get_current_user_required(
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+) -> User:
+    """Yêu cầu người dùng phải đăng nhập hợp lệ để tiếp tục thao tác."""
+    user = get_current_user_optional(authorization, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Vui lòng đăng nhập để tiếp tục")
+    return user
 
 
 # --- API Endpoints ---
@@ -149,15 +208,193 @@ def get_all_foods(db: Session = Depends(get_db)):
     return {"total": len(result), "data": result}
 
 
+# --- Nhóm API Xác thực & Cá nhân hóa ---
+
+@app.post("/api/auth/register", tags=["Xác thực & Cá nhân hóa"])
+def register(data: RegisterInput, db: Session = Depends(get_db)):
+    """Đăng ký tài khoản người dùng mới và tự động khởi tạo Hồ sơ thể trạng / dinh dưỡng."""
+    email_clean = data.email.strip().lower()
+    if not email_clean or "@" not in email_clean:
+        raise HTTPException(status_code=400, detail="Địa chỉ email không hợp lệ")
+    if len(data.password) < 6:
+        raise HTTPException(status_code=400, detail="Mật khẩu tối thiểu phải từ 6 ký tự")
+
+    existing = db.query(User).filter(User.email == email_clean).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email này đã được sử dụng. Vui lòng đăng nhập hoặc chọn email khác")
+
+    user = User(
+        email=email_clean,
+        password_hash=hash_password(data.password),
+        full_name=data.full_name.strip() or "Người dùng CaCalo",
+        role="user"
+    )
+    db.add(user)
+    db.flush()
+
+    # Tính toán các chỉ số sức khỏe tự động
+    calc = calculate_health_metrics(
+        gender=data.gender or "male",
+        birth_year=data.birth_year or 2000,
+        height_cm=float(data.height_cm or 170.0),
+        weight_kg=float(data.weight_kg or 65.0),
+        activity_level=float(data.activity_level or 1.375),
+        goal=data.goal or "maintain",
+        diet_type=data.diet_type or "normal"
+    )
+
+    profile = UserProfile(
+        user_id=user.id,
+        gender=data.gender or "male",
+        birth_year=data.birth_year or 2000,
+        height_cm=float(data.height_cm or 170.0),
+        weight_kg=float(data.weight_kg or 65.0),
+        activity_level=float(data.activity_level or 1.375),
+        goal=data.goal or "maintain",
+        diet_type=data.diet_type or "normal",
+        allergies=data.allergies or [],
+        disliked_ingredients=data.disliked_ingredients or [],
+        bmi=calc["bmi"],
+        bmr=calc["bmr"],
+        tdee=calc["tdee"],
+        target_calories=calc["target_calories"],
+        target_protein_g=calc["target_protein_g"],
+        target_carb_g=calc["target_carb_g"],
+        target_fat_g=calc["target_fat_g"]
+    )
+    db.add(profile)
+    db.commit()
+
+    token = generate_token(user.id)
+    return {
+        "success": True,
+        "message": "Đăng ký tài khoản thành công!",
+        "token": token,
+        "user": format_user_response(user, profile)
+    }
+
+
+@app.post("/api/auth/login", tags=["Xác thực & Cá nhân hóa"])
+def login(data: LoginInput, db: Session = Depends(get_db)):
+    """Đăng nhập tài khoản bằng Email & Mật khẩu."""
+    email_clean = data.email.strip().lower()
+    user = db.query(User).filter(User.email == email_clean).first()
+    if not user or not verify_password(data.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Email hoặc mật khẩu không chính xác")
+
+    profile = user.profile
+    token = generate_token(user.id)
+    return {
+        "success": True,
+        "message": f"Chào mừng {user.full_name} quay trở lại!",
+        "token": token,
+        "user": format_user_response(user, profile)
+    }
+
+
+@app.get("/api/auth/me", tags=["Xác thực & Cá nhân hóa"])
+def get_me(user: User = Depends(get_current_user_required)):
+    """Lấy thông tin người dùng đang đăng nhập kèm hồ sơ thể trạng và dinh dưỡng."""
+    return {
+        "success": True,
+        "user": format_user_response(user, user.profile)
+    }
+
+
+@app.get("/api/user/profile", tags=["Xác thực & Cá nhân hóa"])
+def get_user_profile(
+    user_opt: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """Lấy hồ sơ thể trạng và chỉ số dinh dưỡng (tự động fallback về tài khoản mẫu nếu chưa đăng nhập)."""
+    user = user_opt or db.query(User).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Không tìm thấy hồ sơ người dùng")
+
+    return {
+        "success": True,
+        "user": format_user_response(user, user.profile)
+    }
+
+
+@app.put("/api/user/profile", tags=["Xác thực & Cá nhân hóa"])
+def update_user_profile(
+    data: UpdateProfileInput,
+    user: User = Depends(get_current_user_required),
+    db: Session = Depends(get_db)
+):
+    """Cập nhật hồ sơ thể trạng, mục tiêu & sở thích, tự động tính lại BMI, BMR, TDEE, Calo mục tiêu."""
+    if data.full_name is not None and data.full_name.strip():
+        user.full_name = data.full_name.strip()
+
+    profile = user.profile
+    if not profile:
+        profile = UserProfile(user_id=user.id)
+        db.add(profile)
+
+    if data.gender is not None:
+        profile.gender = data.gender
+    if data.birth_year is not None:
+        profile.birth_year = data.birth_year
+    if data.height_cm is not None:
+        profile.height_cm = float(data.height_cm)
+    if data.weight_kg is not None:
+        profile.weight_kg = float(data.weight_kg)
+    if data.activity_level is not None:
+        profile.activity_level = float(data.activity_level)
+    if data.goal is not None:
+        profile.goal = data.goal
+    if data.diet_type is not None:
+        profile.diet_type = data.diet_type
+    if data.allergies is not None:
+        profile.allergies = data.allergies
+    if data.disliked_ingredients is not None:
+        profile.disliked_ingredients = data.disliked_ingredients
+
+    # Tự động tính toán lại toàn bộ chỉ số dinh dưỡng mới
+    calc = calculate_health_metrics(
+        gender=profile.gender or "male",
+        birth_year=profile.birth_year or 2000,
+        height_cm=float(profile.height_cm or 170.0),
+        weight_kg=float(profile.weight_kg or 65.0),
+        activity_level=float(profile.activity_level or 1.375),
+        goal=profile.goal or "maintain",
+        diet_type=profile.diet_type or "normal"
+    )
+
+    profile.bmi = calc["bmi"]
+    profile.bmr = calc["bmr"]
+    profile.tdee = calc["tdee"]
+    profile.target_calories = calc["target_calories"]
+    profile.target_protein_g = calc["target_protein_g"]
+    profile.target_carb_g = calc["target_carb_g"]
+    profile.target_fat_g = calc["target_fat_g"]
+
+    db.commit()
+    db.refresh(user)
+    db.refresh(profile)
+
+    return {
+        "success": True,
+        "message": "Cập nhật hồ sơ cá nhân hóa thành công!",
+        "user": format_user_response(user, profile)
+    }
+
+
+# --- Nhóm API Nhật ký bữa ăn ---
+
 @app.post("/api/meal-logs", tags=["Nhật ký bữa ăn"])
-def create_meal_log(data: CreateMealLogInput, db: Session = Depends(get_db)):
+def create_meal_log(
+    data: CreateMealLogInput,
+    user_opt: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
     """
     Ghi nhận một bữa ăn vào PostgreSQL (bảng meal_logs & meal_log_items).
-    Tự động tính tổng calo và dinh dưỡng của toàn bữa ăn.
+    Tự động gắn với người dùng đang đăng nhập hoặc tài khoản demo mặc định.
     """
-    # Lấy tài khoản demo mặc định nếu chưa truyền user_id
-    default_user = db.query(User).first()
-    if not default_user:
+    user = user_opt or db.query(User).first()
+    if not user:
         raise HTTPException(status_code=400, detail="Chưa có tài khoản người dùng trong hệ thống")
 
     target_date = data.log_date or date.today()
@@ -168,7 +405,7 @@ def create_meal_log(data: CreateMealLogInput, db: Session = Depends(get_db)):
     total_fat = sum(item.fat for item in data.items)
 
     meal_log = MealLog(
-        user_id=default_user.id,
+        user_id=user.id,
         log_date=target_date,
         meal_type=data.meal_type,
         total_calories=round(total_cal, 1),
@@ -207,10 +444,18 @@ def create_meal_log(data: CreateMealLogInput, db: Session = Depends(get_db)):
 
 
 @app.get("/api/meal-logs/today", tags=["Nhật ký bữa ăn"])
-def get_today_meal_logs(db: Session = Depends(get_db)):
-    """Lấy tổng hợp dinh dưỡng các bữa ăn hôm nay để hiển thị lên Dashboard."""
+def get_today_meal_logs(
+    user_opt: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """Lấy tổng hợp dinh dưỡng các bữa ăn hôm nay và mục tiêu dinh dưỡng cá nhân hóa."""
+    user = user_opt or db.query(User).first()
     today = date.today()
-    logs = db.query(MealLog).filter(MealLog.log_date == today).all()
+    
+    query = db.query(MealLog).filter(MealLog.log_date == today)
+    if user:
+        query = query.filter(MealLog.user_id == user.id)
+    logs = query.all()
 
     total_cal = sum(float(l.total_calories) for l in logs)
     total_pro = sum(float(l.total_protein) for l in logs)
@@ -229,13 +474,18 @@ def get_today_meal_logs(db: Session = Depends(get_db)):
                 "toppings": it.toppings_applied
             })
 
+    user_profile_data = None
+    if user and user.profile:
+        user_profile_data = format_user_response(user, user.profile)["profile"]
+
     return {
         "date": str(today),
         "total_calories": round(total_cal, 1),
         "total_protein": round(total_pro, 1),
         "total_carb": round(total_carb, 1),
         "total_fat": round(total_fat, 1),
-        "items": items_list
+        "items": items_list,
+        "user_profile": user_profile_data
     }
 
 
@@ -373,6 +623,7 @@ def calculate_nutrition(data: NutritionCalculateInput, db: Session = Depends(get
         "portion_multiplier": multiplier,
         "actual_gram": actual_gram,
         "calories": total_cal,
+        "total_calories": total_cal,
         "protein": total_pro,
         "carb": total_carb,
         "fat": total_fat,

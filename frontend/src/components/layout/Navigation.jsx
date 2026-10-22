@@ -4,12 +4,13 @@
  * ĐẦU RA: Giao diện chuyển đổi tab mượt mà.
  */
 import React from 'react';
-import { LayoutDashboard, Camera, Refrigerator } from 'lucide-react';
+import { LayoutDashboard, Camera, Refrigerator, User } from 'lucide-react';
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'vision', label: 'Quét món ăn', icon: Camera },
   { id: 'fridge', label: 'Tủ lạnh & Gợi ý', icon: Refrigerator },
+  { id: 'profile', label: 'Cá nhân hóa', icon: User },
 ];
 
 export function BottomNav({ activeTab, setActiveTab }) {

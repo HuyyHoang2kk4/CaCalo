@@ -265,6 +265,10 @@ def match_item_with_db(ai_name: str, ai_gram: float, db: Session) -> Dict[str, A
             "protein_db": pro_db,
             "carb_db": carb_db,
             "fat_db": fat_db,
+            "calo_per_100g": float(nutrition.calories_kcal) if nutrition else 0.0,
+            "protein_per_100g": float(nutrition.protein_g) if nutrition else 0.0,
+            "carb_per_100g": float(nutrition.carb_g) if nutrition else 0.0,
+            "fat_per_100g": float(nutrition.fat_g) if nutrition else 0.0,
             "data_source": best_match.source or "CSDL CaCalo",
             "servings": servings,
             "toppings": toppings

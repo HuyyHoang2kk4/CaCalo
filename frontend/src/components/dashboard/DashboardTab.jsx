@@ -6,20 +6,22 @@
 import React from 'react';
 import { Plus, Flame, Activity, Clock, CheckCircle2 } from 'lucide-react';
 
-export default function DashboardTab({ foods, onSwitchToScan }) {
-  // Dữ liệu mẫu tĩnh theo tài khoản Demo
+export default function DashboardTab({ foods, onSwitchToScan, userProfile, onOpenProfile }) {
+  // Dữ liệu dinh dưỡng cá nhân hóa lấy trực tiếp từ Hồ sơ người dùng trong PostgreSQL
+  const targetCal = Number(userProfile?.target_calories || 2000);
   const userGoal = {
     currentCalories: 1450,
-    targetCalories: 2000,
-    bmi: 22.2,
-    bmiStatus: 'Bình thường (Lý tưởng)',
-    tdee: 2255,
-    protein: { current: 110, target: 150 },
-    carb: { current: 165, target: 225 },
-    fat: { current: 42, target: 55 },
+    targetCalories: targetCal,
+    bmi: Number(userProfile?.bmi || 22.2),
+    bmiStatus: userProfile?.bmi_status || 'Bình thường (Lý tưởng)',
+    tdee: Number(userProfile?.tdee || 2255),
+    goal: userProfile?.goal || 'maintain',
+    protein: { current: 110, target: Number(userProfile?.target_protein_g || 150) },
+    carb: { current: 165, target: Number(userProfile?.target_carb_g || 225) },
+    fat: { current: 42, target: Number(userProfile?.target_fat_g || 55) },
   };
 
-  const remainingCalories = userGoal.targetCalories - userGoal.currentCalories;
+  const remainingCalories = Math.max(0, userGoal.targetCalories - userGoal.currentCalories);
   const progressPercent = Math.min(100, Math.round((userGoal.currentCalories / userGoal.targetCalories) * 100));
 
   const meals = [
@@ -107,7 +109,16 @@ export default function DashboardTab({ foods, onSwitchToScan }) {
               <h2 className="card-title">Chỉ số cơ thể</h2>
               <span className="card-subtitle">Hồ sơ cá nhân (Mifflin-St Jeor)</span>
             </div>
-            <Activity size={20} color="var(--color-accent)" />
+            {onOpenProfile && (
+              <button 
+                type="button" 
+                className="btn btn-outline btn-sm"
+                onClick={onOpenProfile}
+                style={{ fontSize: '0.75rem', padding: '4px 10px' }}
+              >
+                Cá nhân hóa
+              </button>
+            )}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid var(--border-color)' }}>
             <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Chỉ số BMI:</span>

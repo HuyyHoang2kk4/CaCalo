@@ -4,12 +4,12 @@
  * ĐẦU RA: Giao diện Header với logo, trạng thái server và hồ sơ người dùng.
  */
 import React from 'react';
-import { Salad, User as UserIcon } from 'lucide-react';
+import { Salad, User as UserIcon, LogIn } from 'lucide-react';
 
-export default function Header({ isOnline, totalFoods }) {
+export default function Header({ isOnline, totalFoods, currentUser, onOpenProfile, onOpenAuthModal }) {
   return (
     <header className="app-header">
-      <div className="brand-wrapper">
+      <div className="brand-wrapper" onClick={onOpenProfile ? () => {} : undefined} style={{ cursor: 'pointer' }}>
         <div className="brand-logo-icon" aria-hidden="true">
           <Salad size={22} strokeWidth={1.75} />
         </div>
@@ -26,10 +26,29 @@ export default function Header({ isOnline, totalFoods }) {
           <span>{isOnline ? `PostgreSQL: ${totalFoods} món` : 'Đang kết nối...'}</span>
         </div>
 
-        {/* Nút người dùng */}
-        <button className="btn btn-outline" style={{ width: '40px', padding: 0 }} aria-label="Hồ sơ người dùng">
-          <UserIcon size={18} strokeWidth={1.75} />
-        </button>
+        {/* Nút người dùng / Đăng nhập */}
+        {currentUser ? (
+          <button 
+            className="btn btn-outline header-user-btn" 
+            onClick={onOpenProfile}
+            aria-label="Hồ sơ cá nhân hóa"
+            title={`Tài khoản: ${currentUser.full_name} (${currentUser.email})`}
+          >
+            <div className="user-avatar-mini">
+              {currentUser.full_name?.charAt(0)?.toUpperCase() || 'U'}
+            </div>
+            <span className="header-user-name">{currentUser.full_name?.split(' ').slice(-1)[0] || 'User'}</span>
+          </button>
+        ) : (
+          <button 
+            className="btn btn-primary header-login-btn" 
+            onClick={onOpenAuthModal}
+            aria-label="Đăng nhập hoặc Đăng ký"
+          >
+            <LogIn size={16} strokeWidth={2} />
+            <span>Đăng nhập</span>
+          </button>
+        )}
       </div>
     </header>
   );
