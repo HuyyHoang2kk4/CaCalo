@@ -271,9 +271,9 @@ def submit_ai_feedback(data: AIFeedbackInput, db: Session = Depends(get_db)):
 async def predict_food(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """
     Tiếp nhận ảnh chụp món ăn và phân tích bằng kiến trúc Hybrid:
-    1. Ưu tiên GPT-4o-mini Vision API: Bóc tách đa thành phần, ước lượng gram.
+    1. Ưu tiên Google Gemini Flash Vision API: Bóc tách đa thành phần, ước lượng gram.
     2. Đối chiếu với PostgreSQL: Tính Calo chuẩn xác từ bảng food_nutritions.
-    3. Fallback sang Local Analyzer nếu GPT không khả dụng.
+    3. Fallback sang Local Analyzer nếu Gemini không khả dụng.
     Trả về danh sách món ăn kèm dinh dưỡng và nguồn dữ liệu (DB ✅ / AI ước lượng).
     """
     if not file.content_type.startswith("image/"):

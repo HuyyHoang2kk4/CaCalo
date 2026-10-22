@@ -1,8 +1,8 @@
 """
-Module dịch vụ Thị giác máy tính (Vision Service) — Kiến trúc Hybrid.
-Hỗ trợ 2 chế độ:
-1. GPT-4o-mini Vision API (Ưu tiên): Bóc tách đa thành phần món ăn từ ảnh, ước lượng gram.
-2. Local Feature Analyzer (Fallback): Phân tích màu sắc/kết cấu nếu GPT không khả dụng.
+Module dịch vụ Thị giác máy tính (Vision Service) — Kiến trúc Hybrid (Google Gemini Flash + PostgreSQL).
+Chế độ hoạt động:
+1. Google Gemini Flash Vision API (Chính thức, Miễn phí): Bóc tách đa thành phần món ăn từ ảnh, ước lượng gram.
+2. Local Feature Analyzer (Dự phòng): Phân tích màu sắc/kết cấu nếu mất mạng hoặc chưa có API Key.
 Sau khi nhận diện, đối chiếu với PostgreSQL để tính Calo chuẩn xác từ bảng food_nutritions.
 """
 import os
@@ -16,17 +16,13 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 from PIL import Image
 import numpy as np
+import requests
 from sqlalchemy.orm import Session
 
-# Tự động thêm thư mục backend vào sys.path để tránh lỗi import trong mọi môi trường
+# Tự động nạp thư mục backend vào sys.path
 _backend_dir = str(Path(__file__).resolve().parent.parent.parent)
 if _backend_dir not in sys.path:
     sys.path.insert(0, _backend_dir)
-
-try:
-    from openai import OpenAI
-except ImportError:
-    OpenAI = None
 
 try:
     from app.models import Food, FoodNutrition, FoodServing, FoodTopping
@@ -37,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# 1. TIỀN XỬ LÝ ẢNH (Dùng chung cho cả 2 chế độ)
+# 1. TIỀN XỬ LÝ ẢNH
 # ============================================================
 
 def preprocess_image(image_bytes: bytes) -> Image.Image:
@@ -48,7 +44,6 @@ def preprocess_image(image_bytes: bytes) -> Image.Image:
     if image.mode != "RGB":
         image = image.convert("RGB")
 
-    # Giới hạn kích thước ảnh tối đa 1280px để tăng tốc độ phân tích
     max_dim = 1280
     if max(image.size) > max_dim:
         image.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
@@ -57,7 +52,7 @@ def preprocess_image(image_bytes: bytes) -> Image.Image:
 
 def image_to_base64(image: Image.Image, quality: int = 80) -> str:
     """
-    Chuyển đổi ảnh PIL thành chuỗi Base64 (JPEG) để gửi cho GPT Vision API.
+    Chuyển đổi ảnh PIL thành chuỗi Base64 (JPEG) để gửi cho Gemini Vision API.
     """
     buffer = io.BytesIO()
     image.save(buffer, format="JPEG", quality=quality)
@@ -66,101 +61,84 @@ def image_to_base64(image: Image.Image, quality: int = 80) -> str:
 
 
 # ============================================================
-# 2. GỌI GPT-4o-mini VISION API (Chế độ chính)
+# 2. GỌI GOOGLE GEMINI FLASH VISION API
 # ============================================================
 
-# System Prompt chuyên biệt cho GPT — Đây là "bộ não" của việc nhận diện
-SYSTEM_PROMPT = """Bạn là chuyên gia dinh dưỡng Việt Nam. Nhiệm vụ: Phân tích ảnh món ăn và trả về JSON.
+SYSTEM_PROMPT = """Bạn là chuyên gia dinh dưỡng ẩm thực Việt Nam hàng đầu.
+Nhiệm vụ của bạn là phân tích ảnh chụp bữa ăn/món ăn và trả về kết quả định dạng JSON thuần túy.
 
 QUY TẮC BẮT BUỘC:
-1. Liệt kê TẤT CẢ các thành phần/món ăn nhìn thấy trong ảnh (kể cả đồ ăn kèm như rau sống, nước chấm, quẩy...).
-2. Với mỗi thành phần, ước lượng khối lượng (gram) dựa trên kích thước trực quan.
-3. Ước tính calo và macro (protein, carb, fat) trên tổng gram đó.
-4. Tên món PHẢI viết bằng tiếng Việt chuẩn có dấu (ví dụ: "Phở bò tái", "Cơm trắng", "Trứng ốp la").
-5. Nếu không chắc chắn về một món, vẫn liệt kê với ghi chú "không chắc chắn".
+1. Liệt kê TẤT CẢ các thành phần/món ăn nhìn thấy trong ảnh (kể cả đồ ăn kèm, cơm, đồ xào, nước canh, thịt, trứng, rau...).
+2. Với mỗi thành phần, ước lượng khối lượng (gram) thực tế của một khẩu phần tiêu chuẩn Việt Nam.
+3. Ước tính sơ bộ Calo, Đạm (protein), Tinh bột (carb), Chất béo (fat) cho thành phần đó.
+4. Trả về DUY NHẤT một chuỗi JSON hợp lệ, KHÔNG thêm bất kỳ lời giải thích hay markdown code block nào ngoài JSON.
 
-CHỈ trả về JSON đúng định dạng sau, KHÔNG thêm markdown, KHÔNG thêm giải thích:
+ĐỊNH DẠNG JSON BẮT BUỘC:
 {
   "mon_an": [
     {
-      "ten": "Tên món tiếng Việt có dấu",
-      "uoc_luong_gram": 350,
-      "calo": 480,
-      "protein": 25.0,
-      "carb": 55.0,
-      "fat": 12.0,
-      "ghi_chu": "1 tô vừa"
+      "ten": "Tên món ăn hoặc thành phần cụ thể bằng tiếng Việt chuẩn (VD: Cơm trắng, Sườn nướng, Trứng ốp la, Canh cải)",
+      "uoc_luong_gram": 150,
+      "calo": 195,
+      "protein": 3.5,
+      "carb": 42.0,
+      "fat": 0.5,
+      "ghi_chu": "Khoảng 1 chén cơm vừa"
     }
   ],
   "tong_calo": 480,
-  "nhan_xet": "Nhận xét ngắn gọn về bữa ăn"
+  "nhan_xet": "Nhận xét ngắn gọn về bữa ăn (cân đối, nhiều đạm, nhiều tinh bột...)"
 }"""
 
 
-def call_gpt_vision(image_base64: str) -> Optional[Dict[str, Any]]:
+def call_gemini_vision(image_base64: str) -> Optional[Dict[str, Any]]:
     """
-    Gửi ảnh Base64 đến OpenAI GPT-4o-mini Vision API và parse kết quả JSON.
-    Trả về None nếu API Key chưa cấu hình hoặc gọi thất bại.
+    Gửi ảnh đến Google Gemini Flash Vision API (Miễn phí 100%) và parse kết quả JSON.
+    Hỗ trợ luân phiên các model: gemini-3.5-flash-lite, gemini-3.5-flash.
     """
-    api_key = os.getenv("OPENAI_API_KEY", "")
-    if not api_key or api_key.startswith("sk-your"):
-        logger.warning("OPENAI_API_KEY chưa được cấu hình. Chuyển sang chế độ Fallback.")
-        return None
-
-    if OpenAI is None:
-        logger.warning("Thư viện 'openai' chưa được cài đặt. Chuyển sang chế độ Fallback.")
+    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not gemini_key or gemini_key.startswith("your-"):
+        logger.warning("GEMINI_API_KEY chưa được cấu hình trong .env.")
         return None
 
     try:
-        client = OpenAI(api_key=api_key)
+        from google import genai
+        from google.genai import types
 
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": SYSTEM_PROMPT
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Hãy phân tích ảnh món ăn này và trả về JSON theo đúng format yêu cầu."
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{image_base64}",
-                                "detail": "low"  # Dùng "low" để tiết kiệm token & nhanh hơn
-                            }
-                        }
-                    ]
-                }
-            ],
-            max_tokens=1000,
-            temperature=0.3,  # Giữ thấp để kết quả ổn định, ít bịa
-            timeout=20  # Timeout 20 giây
-        )
+        client = genai.Client(api_key=gemini_key)
+        img_bytes = base64.b64decode(image_base64)
+        prompt = SYSTEM_PROMPT + "\n\nHãy phân tích ảnh món ăn này và xuất đúng định dạng JSON yêu cầu."
 
-        # Trích xuất nội dung text từ response
-        raw_text = response.choices[0].message.content.strip()
+        models = ["gemini-3.5-flash-lite", "gemini-3.5-flash"]
+        for model_name in models:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[
+                        types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"),
+                        prompt
+                    ],
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.2
+                    )
+                )
 
-        # Loại bỏ markdown code block nếu GPT tự thêm (```json ... ```)
-        if raw_text.startswith("```"):
-            raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
-            raw_text = re.sub(r"\s*```$", "", raw_text)
+                raw_text = response.text.strip()
+                if raw_text.startswith("```"):
+                    raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
+                    raw_text = re.sub(r"\s*```$", "", raw_text)
 
-        parsed = json.loads(raw_text)
-        logger.info(f"GPT Vision trả về thành công: {len(parsed.get('mon_an', []))} món ăn")
-        return parsed
+                parsed = json.loads(raw_text)
+                logger.info(f"Google Gemini ({model_name}) Vision trả về thành công: {len(parsed.get('mon_an', []))} món")
+                return parsed
+            except Exception as model_err:
+                logger.warning(f"Thử nghiệm Gemini model {model_name} thất bại: {model_err}")
 
-    except json.JSONDecodeError as e:
-        logger.error(f"GPT trả về không phải JSON hợp lệ: {e}")
-        return None
     except Exception as e:
-        logger.error(f"Lỗi gọi OpenAI GPT Vision API: {e}")
-        return None
+        logger.error(f"Lỗi gọi Google Gemini Vision API: {e}")
+
+    return None
 
 
 # ============================================================
@@ -178,204 +156,262 @@ def remove_vietnamese_accent(text: str) -> str:
         '[ÙÚỦŨỤƯỪỨỬỮỰ]': 'U', '[ỲÝỶỸỴ]': 'Y', '[Đ]': 'D',
     }
     result = text
-    for pattern, replace_char in patterns.items():
-        result = re.sub(pattern, replace_char, result)
-    return result
+    for pattern, replacement in patterns.items():
+        result = re.sub(pattern, replacement, result)
+    return result.lower().strip()
 
 
-def match_gpt_item_with_db(item_name: str, estimated_gram: float, db: Session) -> Dict[str, Any]:
+def calculate_string_similarity(s1: str, s2: str) -> float:
+    """Tính độ tương đồng đơn giản giữa 2 chuỗi (Jaccard similarity trên tập từ)."""
+    w1 = set(s1.split())
+    w2 = set(s2.split())
+    if not w1 or not w2:
+        return 0.0
+    intersection = w1.intersection(w2)
+    union = w1.union(w2)
+    return len(intersection) / len(union)
+
+
+def match_item_with_db(ai_name: str, ai_gram: float, db: Session) -> Dict[str, Any]:
     """
-    Đối chiếu 1 món GPT nhận diện với bảng foods trong PostgreSQL.
-    Ưu tiên: Tìm theo tên có dấu (ILIKE) → Tìm theo tên không dấu → Không khớp.
-    Nếu khớp: Tính Calo = (gram / 100) × Calo_100g từ DB (chuẩn xác).
+    Đối chiếu món ăn bóc tách từ Gemini với bảng `foods` trong PostgreSQL:
+    1. So khớp chính xác tên (case-insensitive).
+    2. So khớp không dấu.
+    3. So khớp từ khóa / tương đồng chuỗi.
+    Nếu tìm thấy món trong DB:
+    - Lấy thông số dinh dưỡng từ bảng `food_nutritions` (trên 100g chuẩn).
+    - Tính Calo, Protein, Carb, Fat chuẩn theo số gram thực tế do AI ước tính.
     """
-    keyword = item_name.strip()
-    keyword_unsigned = remove_vietnamese_accent(keyword).lower()
+    clean_ai_name = ai_name.strip()
+    ai_unaccent = remove_vietnamese_accent(clean_ai_name)
 
-    # Tìm kiếm trong PostgreSQL: Ưu tiên tên có dấu, sau đó tên không dấu
-    food = db.query(Food).filter(
-        Food.name.ilike(f"%{keyword}%")
-    ).first()
+    all_foods = db.query(Food).all()
 
-    if not food:
-        food = db.query(Food).filter(
-            Food.name_unsigned.ilike(f"%{keyword_unsigned}%")
-        ).first()
+    best_match = None
+    best_score = 0.0
 
-    if not food:
-        # Thử tìm bằng từng từ khóa chính (VD: "Phở bò tái chín" → tìm "Phở bò")
-        words = keyword.split()
-        if len(words) >= 2:
-            short_keyword = " ".join(words[:2])
-            food = db.query(Food).filter(
-                Food.name.ilike(f"%{short_keyword}%")
-            ).first()
+    for food in all_foods:
+        food_name = food.name.strip()
+        food_unaccent = remove_vietnamese_accent(food_name)
 
-    if food and food.nutrition:
-        nut = food.nutrition
-        cal_100 = float(nut.calories_kcal)
-        pro_100 = float(nut.protein_g)
-        carb_100 = float(nut.carb_g)
-        fat_100 = float(nut.fat_g)
+        # 1. So khớp chính xác
+        if clean_ai_name.lower() == food_name.lower():
+            best_match = food
+            best_score = 1.0
+            break
 
-        # Tính dinh dưỡng chuẩn xác từ DB
-        calo_db = round((cal_100 * estimated_gram) / 100, 1)
-        protein_db = round((pro_100 * estimated_gram) / 100, 1)
-        carb_db = round((carb_100 * estimated_gram) / 100, 1)
-        fat_db = round((fat_100 * estimated_gram) / 100, 1)
+        # 2. So khớp không dấu chính xác
+        if ai_unaccent == food_unaccent:
+            best_match = food
+            best_score = 0.95
+            break
 
-        # Lấy serving mặc định
-        default_serving = next(
-            (s for s in food.servings if s.is_default),
-            food.servings[0] if food.servings else None
-        )
+        # 3. Một chuỗi chứa chuỗi kia
+        if ai_unaccent in food_unaccent or food_unaccent in ai_unaccent:
+            score = 0.8
+            if score > best_score:
+                best_score = score
+                best_match = food
+            continue
+
+        # 4. Độ tương đồng từ khóa
+        score = calculate_string_similarity(ai_unaccent, food_unaccent)
+        if score > best_score and score >= 0.4:
+            best_score = score
+            best_match = food
+
+    if best_match:
+        nutrition = best_match.nutrition
+        ratio = ai_gram / 100.0
+
+        if nutrition:
+            cal_db = round(float(nutrition.calories_kcal) * ratio)
+            pro_db = round(float(nutrition.protein_g) * ratio, 1)
+            carb_db = round(float(nutrition.carb_g) * ratio, 1)
+            fat_db = round(float(nutrition.fat_g) * ratio, 1)
+        else:
+            cal_db = 0
+            pro_db = 0.0
+            carb_db = 0.0
+            fat_db = 0.0
+
+        servings = [
+            {
+                "id": s.id, "name": s.unit_name,
+                "gram": float(s.weight_gram),
+                "is_default": s.is_default
+            }
+            for s in best_match.servings
+        ]
+
+        toppings = [
+            {
+                "id": t.id, "name": t.name,
+                "gram": float(t.weight_gram),
+                "calories": float(t.calories_kcal),
+                "protein": float(t.protein_g),
+                "carb": float(t.carb_g),
+                "fat": float(t.fat_g)
+            }
+            for t in best_match.toppings
+        ]
 
         return {
             "matched": True,
-            "food_id": food.id,
-            "food_name": food.name,
-            "category": food.category,
-            "calo_db": calo_db,
-            "protein_db": protein_db,
+            "food_id": best_match.id,
+            "db_food_name": best_match.name,
+            "confidence": round(best_score * 100, 1),
+            "calo_db": cal_db,
+            "protein_db": pro_db,
             "carb_db": carb_db,
             "fat_db": fat_db,
-            "calo_per_100g": cal_100,
-            "source": food.source,
-            "default_serving_gram": float(default_serving.weight_gram) if default_serving else None,
-            "default_serving_unit": default_serving.unit_name if default_serving else None,
-            "toppings": [
-                {
-                    "id": t.id,
-                    "name": t.name,
-                    "gram": float(t.weight_gram),
-                    "calories": float(t.calories_kcal),
-                    "protein": float(t.protein_g),
-                    "carb": float(t.carb_g),
-                    "fat": float(t.fat_g)
-                }
-                for t in food.toppings
-            ]
+            "data_source": best_match.source or "CSDL CaCalo",
+            "servings": servings,
+            "toppings": toppings
         }
-    else:
-        return {"matched": False}
-
-
-# ============================================================
-# 4. LOCAL FEATURE ANALYZER (Fallback — giữ nguyên logic cũ)
-# ============================================================
-
-def extract_visual_features(image: Image.Image) -> Dict[str, float]:
-    """
-    Trích xuất các đặc trưng thị giác từ ảnh (Tỷ lệ màu Đỏ, Xanh lá, Vàng, Nâu, Độ sáng).
-    """
-    thumb = image.resize((150, 150))
-    arr = np.array(thumb, dtype=float)
-
-    r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
-    brightness = np.mean(arr)
-
-    green_ratio = np.mean((g > r * 1.1) & (g > b * 1.1) & (g > 60))
-    red_orange_ratio = np.mean((r > 120) & (g < r * 0.8) & (b < r * 0.7))
-    yellow_ratio = np.mean((r > 140) & (g > 120) & (b < 100))
-    brown_ratio = np.mean((r > 70) & (r < 160) & (g > 40) & (g < 120) & (b < 80))
-    white_ratio = np.mean((r > 180) & (g > 180) & (b > 180))
 
     return {
-        "brightness": float(brightness),
-        "green": float(green_ratio),
-        "red_orange": float(red_orange_ratio),
-        "yellow": float(yellow_ratio),
-        "brown": float(brown_ratio),
-        "white": float(white_ratio),
+        "matched": False,
+        "food_id": None,
+        "db_food_name": None,
+        "confidence": 0,
+        "calo_db": 0,
+        "protein_db": 0,
+        "carb_db": 0,
+        "fat_db": 0,
+        "data_source": "Google Gemini ước lượng",
+        "servings": [],
+        "toppings": []
     }
 
 
-def match_food_by_features(features: Dict[str, float], foods: List[Food]) -> List[Tuple[Food, float]]:
-    """
-    Chấm điểm độ tương đồng giữa đặc trưng ảnh và danh mục món ăn Việt Nam trong Database.
-    Trả về danh sách sắp xếp theo điểm tin cậy giảm dần.
-    """
-    scores = []
+# ============================================================
+# 4. CHẾ ĐỘ DỰ PHÒNG CỤC BỘ (Local Fallback)
+# ============================================================
 
+def local_extract_features(image: Image.Image) -> Dict[str, float]:
+    """Trích xuất dải màu sắc ảnh làm đặc trưng cơ bản."""
+    img_small = image.resize((150, 150))
+    arr = np.array(img_small, dtype=np.float32) / 255.0
+
+    r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+    max_c = np.maximum(np.maximum(r, g), b)
+    min_c = np.minimum(np.minimum(r, g), b)
+    diff = max_c - min_c
+
+    s = np.where(max_c == 0, 0, diff / (max_c + 1e-6))
+    v = max_c
+
+    h = np.zeros_like(max_c)
+    mask_r = (max_c == r) & (diff > 0)
+    mask_g = (max_c == g) & (diff > 0)
+    mask_b = (max_c == b) & (diff > 0)
+
+    h[mask_r] = (60.0 * ((g[mask_r] - b[mask_r]) / diff[mask_r]) + 360.0) % 360.0
+    h[mask_g] = (60.0 * ((b[mask_g] - r[mask_g]) / diff[mask_g]) + 120.0) % 360.0
+    h[mask_b] = (60.0 * ((r[mask_b] - g[mask_b]) / diff[mask_b]) + 240.0) % 360.0
+
+    yellow_score = float(np.mean((h >= 35) & (h <= 65) & (s > 0.25) & (v > 0.4)))
+    green_score = float(np.mean((h >= 75) & (h <= 160) & (s > 0.2) & (v > 0.3)))
+    red_score = float(np.mean(((h >= 340) | (h <= 20)) & (s > 0.3) & (v > 0.3)))
+    brown_score = float(np.mean((h >= 15) & (h <= 40) & (s > 0.3) & (v < 0.6)))
+    white_score = float(np.mean((s < 0.2) & (v > 0.75)))
+
+    gray = 0.299 * r + 0.587 * g + 0.114 * b
+    dx = np.diff(gray, axis=1)
+    dy = np.diff(gray, axis=0)
+    texture_score = float(np.mean(np.abs(dx)) + np.mean(np.abs(dy)))
+
+    return {
+        "yellow": yellow_score,
+        "green": green_score,
+        "red": red_score,
+        "brown": brown_score,
+        "white": white_score,
+        "texture": texture_score
+    }
+
+
+def local_match_candidates(features: Dict[str, float], db: Session, top_k: int = 3) -> List[Tuple[Food, float]]:
+    foods = db.query(Food).all()
+    if not foods:
+        return []
+
+    scored_foods = []
     for food in foods:
-        name_lower = food.name_unsigned.lower()
-        score = 0.45
+        score = 0.3
+        cat = food.category or ""
+        fn = food.name.lower()
 
-        if "rau muong" in name_lower or "cai" in name_lower:
-            score += features["green"] * 1.8
-        elif "bun bo" in name_lower or "canh chua" in name_lower or "sot ca" in name_lower:
-            score += features["red_orange"] * 1.5 + (0.1 if features["white"] > 0.15 else 0)
-        elif "com tam" in name_lower or "bun cha" in name_lower:
-            score += features["brown"] * 1.4 + features["white"] * 0.6
-        elif "banh mi" in name_lower:
-            score += features["yellow"] * 1.3 + features["brown"] * 0.8
-        elif "pho bo" in name_lower:
-            score += features["white"] * 0.9 + (0.2 if features["brightness"] > 110 else 0)
-        elif "goi cuon" in name_lower:
-            score += features["white"] * 1.0 + features["green"] * 0.8
-        elif "trung" in name_lower:
-            score += features["yellow"] * 1.6
-        else:
-            score += 0.1
+        if "pho" in fn or "phở" in fn or "bún" in fn:
+            score += features["white"] * 0.4 + features["brown"] * 0.3
+        elif "cơm" in fn or "com" in fn:
+            score += features["white"] * 0.4 + features["yellow"] * 0.3
+        elif "salad" in fn or "rau" in fn:
+            score += features["green"] * 0.6
+        elif "thịt" in fn or "sườn" in fn or "bò" in fn:
+            score += features["red"] * 0.4 + features["brown"] * 0.3
+        elif "trứng" in fn:
+            score += features["yellow"] * 0.5 + features["white"] * 0.3
 
-        normalized_score = min(max(score, 0.25), 0.96)
-        scores.append((food, round(normalized_score, 2)))
+        if cat == "Món nước":
+            score += features["white"] * 0.2
+        elif cat == "Món chính":
+            score += features["yellow"] * 0.2
 
-    scores.sort(key=lambda x: x[1], reverse=True)
-    return scores
+        score = min(max(score, 0.05), 0.98)
+        scored_foods.append((food, score))
+
+    scored_foods.sort(key=lambda x: x[1], reverse=True)
+    return scored_foods[:top_k]
 
 
 def fallback_local_predict(image_bytes: bytes, db: Session) -> Dict[str, Any]:
-    """
-    Chế độ Fallback: Sử dụng bộ phân tích cục bộ (Local Feature Analyzer) khi GPT không khả dụng.
-    Trả về Top 3 món có độ tin cậy cao nhất.
-    """
     image = preprocess_image(image_bytes)
-    foods = db.query(Food).all()
-    if not foods:
-        return {"success": False, "ai_source": "local", "items": [], "tong_calo_db": 0}
+    features = local_extract_features(image)
+    candidates = local_match_candidates(features, db, top_k=3)
 
-    features = extract_visual_features(image)
-    ranked_foods = match_food_by_features(features, foods)
-
-    top_3 = ranked_foods[:3]
     items = []
     total_calo = 0
 
-    for rank, (food, score) in enumerate(top_3, 1):
-        nut = food.nutrition
-        default_serving = next(
-            (s for s in food.servings if s.is_default),
-            food.servings[0] if food.servings else None
-        )
-        base_gram = float(default_serving.weight_gram) if default_serving else 400.0
-        calo = round((float(nut.calories_kcal) * base_gram) / 100, 1) if nut else 0
+    for food, conf in candidates:
+        default_serving = next((s for s in food.servings if s.is_default), None)
+        gram = float(default_serving.weight_gram) if default_serving else 100.0
 
-        if rank == 1:
-            total_calo = calo
+        nutrition = food.nutrition
+        ratio = gram / 100.0
+        calo = round(float(nutrition.calories_kcal) * ratio) if nutrition else 200
+        pro = round(float(nutrition.protein_g) * ratio, 1) if nutrition else 10.0
+        carb = round(float(nutrition.carb_g) * ratio, 1) if nutrition else 25.0
+        fat = round(float(nutrition.fat_g) * ratio, 1) if nutrition else 5.0
+        total_calo += calo
 
         items.append({
             "ten": food.name,
-            "uoc_luong_gram": base_gram,
+            "uoc_luong_gram": gram,
             "calo_ai": calo,
-            "protein_ai": round((float(nut.protein_g) * base_gram) / 100, 1) if nut else 0,
-            "carb_ai": round((float(nut.carb_g) * base_gram) / 100, 1) if nut else 0,
-            "fat_ai": round((float(nut.fat_g) * base_gram) / 100, 1) if nut else 0,
-            "ghi_chu": f"Khẩu phần chuẩn ({default_serving.unit_name})" if default_serving else "Ước lượng",
-            "confidence": int(score * 100),
+            "protein_ai": pro,
+            "carb_ai": carb,
+            "fat_ai": fat,
+            "ghi_chu": f"Khẩu phần chuẩn ({default_serving.unit_name if default_serving else 'Mặc định'})",
             "matched_food": {
                 "matched": True,
                 "food_id": food.id,
-                "food_name": food.name,
-                "category": food.category,
+                "db_food_name": food.name,
+                "confidence": round(conf * 100, 1),
                 "calo_db": calo,
-                "protein_db": round((float(nut.protein_g) * base_gram) / 100, 1) if nut else 0,
-                "carb_db": round((float(nut.carb_g) * base_gram) / 100, 1) if nut else 0,
-                "fat_db": round((float(nut.fat_g) * base_gram) / 100, 1) if nut else 0,
-                "calo_per_100g": float(nut.calories_kcal) if nut else 0,
-                "source": food.source,
-                "default_serving_gram": base_gram,
-                "default_serving_unit": default_serving.unit_name if default_serving else None,
+                "protein_db": pro,
+                "carb_db": carb,
+                "fat_db": fat,
+                "data_source": food.source or "CSDL CaCalo",
+                "servings": [
+                    {
+                        "id": s.id, "name": s.unit_name,
+                        "gram": float(s.weight_gram),
+                        "is_default": s.is_default
+                    }
+                    for s in food.servings
+                ],
                 "toppings": [
                     {
                         "id": t.id, "name": t.name,
@@ -396,7 +432,7 @@ def fallback_local_predict(image_bytes: bytes, db: Session) -> Dict[str, Any]:
         "items": items,
         "tong_calo_ai": total_calo,
         "tong_calo_db": total_calo,
-        "nhan_xet": f"Phân tích cục bộ (GPT không khả dụng). Top 1: {items[0]['ten']} ({items[0].get('confidence', 0)}%)" if items else ""
+        "nhan_xet": f"Phân tích cục bộ (Gemini không khả dụng). Top 1: {items[0]['ten']} ({items[0].get('confidence', 0)}%)" if items else ""
     }
 
 
@@ -407,28 +443,27 @@ def fallback_local_predict(image_bytes: bytes, db: Session) -> Dict[str, Any]:
 def predict_food_image(image_bytes: bytes, db: Session) -> Dict[str, Any]:
     """
     Hàm phân tích ảnh chính thức — Kiến trúc Hybrid:
-    1. Ưu tiên gọi GPT-4o-mini Vision API để bóc tách thành phần món ăn.
-    2. Đối chiếu từng món với PostgreSQL để tính Calo chuẩn xác.
-    3. Nếu GPT không khả dụng → Fallback về Local Feature Analyzer.
+    1. Ưu tiên Google Gemini Flash Vision API (Miễn phí 100%, tốc độ cao).
+    2. Bóc tách từng thành phần món ăn, ước lượng khối lượng (gram).
+    3. Đối chiếu từng món với CSDL PostgreSQL để tính Calo chuẩn xác.
+    4. Fallback về Local Analyzer nếu mất mạng hoặc API gặp sự cố.
     """
-    # Tiền xử lý ảnh
     image = preprocess_image(image_bytes)
     image_b64 = image_to_base64(image)
 
-    # Thử gọi GPT Vision API
-    gpt_result = call_gpt_vision(image_b64)
+    # 1. Gọi Google Gemini Flash Vision
+    ai_result = call_gemini_vision(image_b64)
 
-    if gpt_result is None or "mon_an" not in gpt_result:
-        # GPT không khả dụng → Fallback về Local Analyzer
-        logger.info("Chuyển sang chế độ Fallback (Local Feature Analyzer)")
+    if not ai_result or "mon_an" not in ai_result:
+        logger.info("Gemini Vision không khả dụng -> Chuyển sang Local Fallback")
         return fallback_local_predict(image_bytes, db)
 
-    # GPT trả về thành công → Đối chiếu với PostgreSQL
+    # 2. Bóc tách và đối chiếu CSDL PostgreSQL
     items = []
     tong_calo_ai = 0
     tong_calo_db = 0
 
-    for mon in gpt_result.get("mon_an", []):
+    for mon in ai_result.get("mon_an", []):
         ten = mon.get("ten", "Không rõ")
         gram = mon.get("uoc_luong_gram", 200)
         calo_ai = mon.get("calo", 0)
@@ -439,10 +474,9 @@ def predict_food_image(image_bytes: bytes, db: Session) -> Dict[str, Any]:
 
         tong_calo_ai += calo_ai
 
-        # Đối chiếu với CSDL PostgreSQL
-        matched = match_gpt_item_with_db(ten, gram, db)
+        # Đối chiếu với PostgreSQL
+        matched = match_item_with_db(ten, gram, db)
 
-        # Nếu khớp DB → dùng Calo từ DB; không khớp → dùng Calo từ GPT
         if matched.get("matched"):
             tong_calo_db += matched["calo_db"]
         else:
@@ -461,9 +495,10 @@ def predict_food_image(image_bytes: bytes, db: Session) -> Dict[str, Any]:
 
     return {
         "success": True,
-        "ai_source": "gpt-4o-mini",
+        "ai_source": "gemini-flash",
         "items": items,
-        "tong_calo_ai": round(tong_calo_ai, 1),
-        "tong_calo_db": round(tong_calo_db, 1),
-        "nhan_xet": gpt_result.get("nhan_xet", "")
+        "tong_calo_ai": tong_calo_ai,
+        "tong_calo_db": tong_calo_db,
+        "nhan_xet": ai_result.get("nhan_xet", "Bữa ăn cân đối"),
+        "raw_ai_response": ai_result
     }

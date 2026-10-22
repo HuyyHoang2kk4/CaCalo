@@ -1,8 +1,8 @@
 /**
- * MỤC ĐÍCH: Màn hình Quét món ăn tính Calo — Kiến trúc Hybrid (GPT Vision + PostgreSQL).
+ * MỤC ĐÍCH: Màn hình Quét món ăn tính Calo — Kiến trúc Hybrid (Google Gemini Flash + PostgreSQL).
  * TÍNH NĂNG ĐẦY ĐỦ:
  * - CC-2.1: Tải ảnh kéo thả, nén ảnh Canvas client (<1MB), mở Camera WebRTC chụp trực tiếp.
- * - CC-2.2: GPT-4o-mini Vision bóc tách đa thành phần, đối chiếu CSDL PostgreSQL tính Calo chuẩn.
+ * - CC-2.2: Google Gemini Flash Vision bóc tách đa thành phần, đối chiếu CSDL PostgreSQL tính Calo chuẩn.
  * - CC-2.3 & CC-2.4: Người dùng sửa gram từng món, thêm/xóa món, chọn Toppings.
  * - CC-2.5: Chỉnh sửa nhãn AI (Human-in-the-loop), thu thập phản hồi.
  * - CC-2.7: Tìm kiếm nhanh món ăn có dấu / không dấu từ PostgreSQL.
@@ -24,7 +24,7 @@ export default function VisionTab({ foods = [] }) {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
-  // 2. Kết quả phân tích GPT Vision (Danh sách món bóc tách)
+  // 2. Kết quả phân tích Gemini Vision (Danh sách món bóc tách)
   const [analysisResult, setAnalysisResult] = useState(null);
   // Danh sách món đang hiển thị (người dùng có thể sửa gram, xóa, thêm)
   const [editableItems, setEditableItems] = useState([]);
@@ -65,7 +65,7 @@ export default function VisionTab({ foods = [] }) {
         carb += (m.carb_db / (item._original_gram || gram)) * gram;
         fat += (m.fat_db / (item._original_gram || gram)) * gram;
       } else {
-        // Dùng số liệu GPT ước lượng (tỷ lệ theo gram)
+        // Dùng số liệu Gemini ước lượng (tỷ lệ theo gram)
         const ratio = item.uoc_luong_gram / (item._original_gram || item.uoc_luong_gram);
         calo += item.calo_ai * ratio;
         protein += item.protein_ai * ratio;
@@ -290,7 +290,7 @@ export default function VisionTab({ foods = [] }) {
         predicted_label: editableItems.map((i) => i.ten).join(', '),
         confidence_score: 0.7,
         user_corrected_label: correctedText.trim(),
-        model_version: analysisResult?.ai_source || 'gpt-4o-mini',
+        model_version: analysisResult?.ai_source || 'gemini-flash',
         raw_predictions: editableItems.map((i) => ({ label: i.ten, gram: i.uoc_luong_gram })),
       });
       setSaveStatus({
@@ -370,7 +370,7 @@ export default function VisionTab({ foods = [] }) {
           <div className="card-header">
             <h2 className="card-title">Hình ảnh món ăn</h2>
             <span className="card-subtitle">
-              {analysisResult?.ai_source === 'gpt-4o-mini' ? '🧠 GPT Vision' : analysisResult?.ai_source === 'local_fallback' ? '🔬 Local Analyzer' : 'WebRTC Camera & Tải tệp'}
+              {analysisResult?.ai_source === 'gemini-flash' ? '✨ Gemini Flash' : analysisResult?.ai_source === 'local_fallback' ? '🔬 Local Analyzer' : 'WebRTC Camera & Tải tệp'}
             </span>
           </div>
 
@@ -462,7 +462,7 @@ export default function VisionTab({ foods = [] }) {
                   AI đang phân tích món ăn...
                 </span>
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                  GPT Vision đang bóc tách từng thành phần
+                  Google Gemini đang bóc tách từng thành phần
                 </span>
               </div>
             )}
@@ -547,12 +547,12 @@ export default function VisionTab({ foods = [] }) {
                   <span
                     className="brand-badge"
                     style={{
-                      backgroundColor: analysisResult.ai_source === 'gpt-4o-mini' ? '#DBEAFE' : '#FEF3C7',
-                      color: analysisResult.ai_source === 'gpt-4o-mini' ? '#1D4ED8' : '#D97706',
+                      backgroundColor: analysisResult.ai_source === 'gemini-flash' ? '#EFF6FF' : '#FEF3C7',
+                      color: analysisResult.ai_source === 'gemini-flash' ? '#2563EB' : '#D97706',
                     }}
                   >
                     <Sparkles size={12} style={{ display: 'inline', marginRight: '4px' }} />
-                    {analysisResult.ai_source === 'gpt-4o-mini' ? 'GPT Vision' : 'Local Analyzer'}
+                    {analysisResult.ai_source === 'gemini-flash' ? 'Gemini Flash' : 'Local Analyzer'}
                   </span>
                 )}
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
