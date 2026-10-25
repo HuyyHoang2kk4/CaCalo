@@ -36,6 +36,13 @@ app.add_middleware(
 )
 
 from app.services.vision_service import predict_food_image
+from app.services.chatbot_service import process_chat_message
+from app.services.nutrition_logic import (
+    calc_full_metrics,
+    evaluate_meal_balance,
+    get_serving_gram,
+    calc_nutrition_by_gram,
+)
 
 # --- Pydantic Request/Response Models ---
 
@@ -78,6 +85,17 @@ class AIFeedbackInput(BaseModel):
     confidence_score: Optional[float] = None
     user_corrected_label: str
     corrected_food_id: Optional[int] = None
+
+class ChatbotInput(BaseModel):
+    message: str
+    history: List[dict] = []  # [{"role": "user"|"assistant", "content": "..."}]
+
+class EvaluateMealInput(BaseModel):
+    calories: float
+    protein_g: float
+    carb_g: float
+    fat_g: float
+    target_calories: Optional[float] = 2000.0
 
 class RegisterInput(BaseModel):
     email: str
@@ -662,3 +680,72 @@ def search_foods(q: str = Query(..., min_length=1, description="Từ khóa tìm 
     return {"query": q, "total": len(result), "data": result}
 
 
+# --- Nhom API Chatbot AI (CC-3.4) ---
+
+@app.post("/api/chatbot", tags=["Tro ly AI"])
+def chatbot(
+    data: ChatbotInput,
+    user_opt: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """
+    Tro ly AI hoi dap dinh duong - Kien truc RAG (Retrieval-Augmented Generation).
+    AI duoc inject day du context tu DB: ho so nguoi dung, danh sach mon an,
+    nhat ky hom nay, cong thuc. AI chi dien dat cau tra loi - khong tu tinh so.
+    Rang buoc cung: di ung, muc tieu Calo cua nguoi dung.
+    """
+    user = user_opt or db.query(User).first()
+    profile = user.profile if user else None
+
+    from datetime import date as _date
+    today = _date.today()
+    logs_query = db.query(MealLog).filter(MealLog.log_date == today)
+    if user:
+        logs_query = logs_query.filter(MealLog.user_id == user.id)
+    today_logs_raw = logs_query.all()
+
+    today_logs = []
+    for log in today_logs_raw:
+        for item in log.items:
+            today_logs.append({
+                "meal_type": log.meal_type,
+                "food_name": item.food_name,
+                "calories": float(item.calories),
+                "protein": float(item.protein),
+                "carb": float(item.carb),
+                "fat": float(item.fat),
+            })
+
+    result = process_chat_message(
+        message=data.message,
+        db=db,
+        user_profile=profile,
+        today_logs=today_logs,
+        history=data.history,
+    )
+    return {"success": True, **result}
+
+
+@app.post("/api/nutrition/evaluate", tags=["Dong co Dinh duong"])
+def evaluate_nutrition(
+    data: EvaluateMealInput,
+    user_opt: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """
+    Danh gia can doi dinh duong bua an - hoan toan deterministic, khong dung AI.
+    Tinh ty le phan tram Macro, so sanh voi muc tieu ca nhan, dua ra nhan xet co quy tac.
+    """
+    user = user_opt or db.query(User).first()
+    target_cal = data.target_calories or 2000.0
+    if user and user.profile and user.profile.target_calories:
+        target_cal = float(user.profile.target_calories)
+
+    balance = evaluate_meal_balance(
+        calories=data.calories,
+        protein_g=data.protein_g,
+        carb_g=data.carb_g,
+        fat_g=data.fat_g,
+        target_calories=target_cal,
+    )
+    return {"success": True, "evaluation": balance}

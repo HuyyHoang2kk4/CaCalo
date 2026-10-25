@@ -212,6 +212,38 @@ export const logoutUser = () => {
   localStorage.removeItem('cacalo_token');
 };
 
+/**
+ * MỤC ĐÍCH: Gửi tin nhắn đến Chatbot AI (CC-3.4) theo kiến trúc RAG.
+ * AI được inject context từ DB: hồ sơ người dùng, danh sách món ăn, nhật ký hôm nay.
+ * AI chỉ diễn đạt — số liệu luôn từ DB (AI Guardrails).
+ * ĐẦU VÀO: { message: string, history: [{role, content}] }
+ * ĐẦU RA: { success, reply, intent, ai_source, data }
+ */
+export const chatWithAI = async (message, history = []) => {
+  try {
+    return await apiClient.post('/chatbot', { message, history });
+  } catch (error) {
+    console.error('Lỗi gọi Chatbot AI:', error);
+    return {
+      success: false,
+      reply: 'Xin lỗi, Trợ lý AI tạm thời không phản hồi. Vui lòng thử lại sau.',
+      intent: 'error',
+    };
+  }
+};
+
+/**
+ * MỤC ĐÍCH: Đánh giá cân đối dinh dưỡng bữa ăn — hoàn toàn deterministic, không AI.
+ * ĐẦU VÀO: { calories, protein_g, carb_g, fat_g, target_calories? }
+ * ĐẦU RA: { success, evaluation: { pct_protein, pct_carb, pct_fat, notes, ... } }
+ */
+export const evaluateMeal = async (mealData) => {
+  try {
+    return await apiClient.post('/nutrition/evaluate', mealData);
+  } catch (error) {
+    console.error('Lỗi đánh giá dinh dưỡng:', error);
+    return { success: false, evaluation: null };
+  }
+};
+
 export default apiClient;
-
-

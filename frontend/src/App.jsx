@@ -121,7 +121,7 @@ export default function App() {
           )}
 
           {activeTab === 'fridge' && (
-            <FridgeTab />
+            <FridgeTab userProfile={userProfile} />
           )}
 
           {activeTab === 'profile' && (

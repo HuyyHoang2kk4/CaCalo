@@ -1,12 +1,16 @@
 /**
- * MỤC ĐÍCH: Màn hình Tủ lạnh thông minh & Gợi ý công thức món ăn từ nguyên liệu sẵn có.
- * ĐẦU VÀO: Không có hoặc danh sách nguyên liệu từ Backend.
- * ĐẦU RA: Giao diện tick chọn nguyên liệu và danh sách thẻ món ăn nấu ngay.
+ * MỤC ĐÍCH: Màn hình Tủ lạnh thông minh & Trợ lý AI Dinh dưỡng.
+ * TABS: [Tủ lạnh & Gợi ý] | [Trợ lý AI]
+ * ĐẦU VÀO: userProfile (truyền xuống ChatbotTab để cá nhân hóa tư vấn)
  */
 import React, { useState } from 'react';
-import { ChefHat, Clock, Sparkles, Check, CheckCircle2 } from 'lucide-react';
+import { ChefHat, Clock, Sparkles, Check, CheckCircle2, Bot, Refrigerator } from 'lucide-react';
+import ChatbotTab from './ChatbotTab';
 
-export default function FridgeTab() {
+export default function FridgeTab({ userProfile }) {
+  // Sub-tab: 'fridge' | 'chatbot'
+  const [activeSubTab, setActiveSubTab] = useState('fridge');
+
   // Danh sách nguyên liệu sẵn có trong tủ
   const sampleIngredients = [
     { id: 1, name: 'Ức gà', category: 'Thịt cá' },
@@ -63,6 +67,51 @@ export default function FridgeTab() {
 
   return (
     <div className="fridge-tab">
+      {/* Tab switcher: Tủ lạnh | Trợ lý AI */}
+      <div style={{
+        display: 'flex', gap: '4px', marginBottom: '20px',
+        backgroundColor: 'var(--bg-surface)', padding: '4px',
+        borderRadius: 'var(--radius-inner)', border: '1px solid var(--border-color)',
+        width: 'fit-content',
+      }}>
+        {[
+          { id: 'fridge', label: 'Tủ Lạnh & Gợi Ý', icon: <ChefHat size={15} /> },
+          { id: 'chatbot', label: 'Trợ Lý AI', icon: <Bot size={15} /> },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveSubTab(tab.id)}
+            className="btn"
+            style={{
+              height: '34px', minHeight: '34px', gap: '6px',
+              fontSize: '0.82rem', fontWeight: activeSubTab === tab.id ? 600 : 500,
+              borderRadius: 'calc(var(--radius-inner) - 2px)',
+              backgroundColor: activeSubTab === tab.id ? 'var(--color-accent)' : 'transparent',
+              color: activeSubTab === tab.id ? 'white' : 'var(--text-secondary)',
+              border: 'none', transition: 'all 0.2s ease',
+            }}
+          >
+            {tab.icon}
+            <span>{tab.label}</span>
+            {tab.id === 'chatbot' && (
+              <span style={{
+                fontSize: '0.62rem', fontWeight: 700, padding: '1px 5px',
+                borderRadius: '4px',
+                backgroundColor: activeSubTab === 'chatbot' ? 'rgba(255,255,255,0.25)' : 'var(--color-accent-light)',
+                color: activeSubTab === 'chatbot' ? 'white' : 'var(--color-accent)',
+              }}>RAG</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Chatbot AI Tab */}
+      {activeSubTab === 'chatbot' && (
+        <ChatbotTab userProfile={userProfile} />
+      )}
+
+      {/* Fridge & Recipe Tab */}
+      {activeSubTab === 'fridge' && (<>
       <div style={{ marginBottom: '20px' }}>
         <h1 style={{ fontSize: '1.4rem', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
           Gợi Ý Nấu Ăn Từ Đồ Trong Tủ
@@ -165,7 +214,9 @@ export default function FridgeTab() {
             </div>
           ))}
         </div>
+        </div>
       </section>
+      </>)}
     </div>
   );
 }
