@@ -7,21 +7,21 @@ import React from 'react';
 import { Plus, Flame, Activity, Clock, CheckCircle2 } from 'lucide-react';
 
 export default function DashboardTab({ foods, onSwitchToScan, userProfile, onOpenProfile }) {
-  // Dữ liệu dinh dưỡng cá nhân hóa lấy trực tiếp từ Hồ sơ người dùng trong PostgreSQL
-  const targetCal = Number(userProfile?.target_calories || 2000);
+  // Dữ liệu dinh dưỡng cá nhân hóa lấy trực tiếp từ Hồ sơ người dùng trong PostgreSQL (làm tròn số nguyên đẹp mắt)
+  const targetCal = Math.round(Number(userProfile?.target_calories || 2000));
   const userGoal = {
     currentCalories: 1450,
     targetCalories: targetCal,
-    bmi: Number(userProfile?.bmi || 22.2),
+    bmi: Number(userProfile?.bmi ? Number(userProfile.bmi).toFixed(1) : 22.2),
     bmiStatus: userProfile?.bmi_status || 'Bình thường (Lý tưởng)',
-    tdee: Number(userProfile?.tdee || 2255),
+    tdee: Math.round(Number(userProfile?.tdee || 2255)),
     goal: userProfile?.goal || 'maintain',
-    protein: { current: 110, target: Number(userProfile?.target_protein_g || 150) },
-    carb: { current: 165, target: Number(userProfile?.target_carb_g || 225) },
-    fat: { current: 42, target: Number(userProfile?.target_fat_g || 55) },
+    protein: { current: 110, target: Math.round(Number(userProfile?.target_protein_g || 150)) },
+    carb: { current: 165, target: Math.round(Number(userProfile?.target_carb_g || 225)) },
+    fat: { current: 42, target: Math.round(Number(userProfile?.target_fat_g || 55)) },
   };
 
-  const remainingCalories = Math.max(0, userGoal.targetCalories - userGoal.currentCalories);
+  const remainingCalories = Math.max(0, Math.round(userGoal.targetCalories - userGoal.currentCalories));
   const progressPercent = Math.min(100, Math.round((userGoal.currentCalories / userGoal.targetCalories) * 100));
 
   const meals = [
@@ -80,7 +80,10 @@ export default function DashboardTab({ foods, onSwitchToScan, userProfile, onOpe
             </span>
           </div>
           <p className="calorie-target-text">
-            Còn lại <strong className="tabular-nums" style={{ color: 'var(--color-accent)' }}>{remainingCalories} kcal</strong> để đạt mục tiêu giữ cân.
+            Còn lại <strong className="tabular-nums" style={{ color: 'var(--color-accent)' }}>{remainingCalories.toLocaleString()} kcal</strong> để đạt mục tiêu {
+              userGoal.goal === 'lose_weight' ? 'giảm cân' :
+              userGoal.goal === 'gain_weight' ? 'tăng cân' : 'giữ cân'
+            }.
           </p>
         </div>
 

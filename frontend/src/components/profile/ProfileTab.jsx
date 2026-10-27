@@ -27,7 +27,7 @@ const DISLIKE_OPTIONS = [
   'Hành lá', 'Mắm tôm', 'Thịt mỡ', 'Nội tạng', 'Ớt cay', 'Rau mùi'
 ];
 
-export default function ProfileTab({ currentUser, userProfile, onProfileUpdated, onOpenAuthModal }) {
+export default function ProfileTab({ currentUser, userProfile, onProfileUpdated, onOpenAuthModal, onLogout }) {
   // Local editable form states
   const [formData, setFormData] = useState({
     fullName: '',
@@ -123,7 +123,11 @@ export default function ProfileTab({ currentUser, userProfile, onProfileUpdated,
 
   const handleLogout = () => {
     logoutUser();
-    window.location.reload();
+    if (onLogout) {
+      onLogout();
+    } else {
+      window.location.reload();
+    }
   };
 
   const currentBmi = userProfile?.bmi || 22.2;

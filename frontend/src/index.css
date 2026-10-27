@@ -1818,3 +1818,117 @@ button {
   color: var(--text-muted);
   font-size: 0.88rem;
 }
+
+
+/* ==========================================================================
+   14. LOGIN PAGE SCREEN STYLES (TRANG ĐĂNG NHẬP KHỞI ĐẦU)
+   ========================================================================== */
+.login-screen-wrapper {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background-color: var(--bg-primary);
+  background-image: radial-gradient(circle at 50% 15%, rgba(5, 150, 105, 0.08), transparent 45%),
+                    radial-gradient(circle at 90% 85%, rgba(37, 99, 235, 0.04), transparent 40%);
+}
+
+.login-card-container {
+  width: 100%;
+  max-width: 460px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-outer);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+  padding: 32px 28px;
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.login-header-section {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.login-brand-logo {
+  width: 60px;
+  height: 60px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #059669, #10B981);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 12px;
+  box-shadow: 0 4px 14px rgba(5, 150, 105, 0.3);
+}
+
+.login-brand-title {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  margin-bottom: 4px;
+}
+
+.login-brand-subtitle {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+}
+
+.quick-login-panel {
+  background-color: var(--color-accent-light);
+  border: 1px dashed var(--color-accent-border);
+  border-radius: var(--radius-inner);
+  padding: 12px 14px;
+  margin-bottom: 20px;
+}
+
+.quick-login-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  margin-bottom: 8px;
+}
+
+.quick-login-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.quick-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background-color: var(--bg-card);
+  border-color: var(--color-accent-border);
+  color: var(--text-primary);
+  border-radius: 6px;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.quick-btn:hover {
+  background-color: var(--color-accent);
+  color: white;
+  border-color: var(--color-accent);
+  transform: translateY(-1px);
+}
+
+.quick-btn-admin {
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.quick-btn-admin:hover {
+  background-color: #4F46E5;
+  border-color: #4F46E5;
+}

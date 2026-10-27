@@ -4,6 +4,7 @@
  * BỐ CỤC: Header cố định, Desktop Sidebar, Main Content, Mobile Bottom Navigation, AuthModal.
  */
 import React, { useState, useEffect } from 'react';
+import { Salad } from 'lucide-react';
 import Header from './components/layout/Header';
 import { BottomNav, DesktopSidebar } from './components/layout/Navigation';
 import DashboardTab from './components/dashboard/DashboardTab';
@@ -12,7 +13,8 @@ import FridgeTab from './components/fridge/FridgeTab';
 import ProfileTab from './components/profile/ProfileTab';
 import AdminTab from './components/admin/AdminTab';
 import AuthModal from './components/auth/AuthModal';
-import { checkHealth, getFoods, getCurrentUser, getUserProfile } from './services/api';
+import LoginPage from './components/auth/LoginPage';
+import { checkHealth, getFoods, getCurrentUser } from './services/api';
 
 export default function App() {
   // Hỗ trợ khởi tạo tab từ URL hash (#admin) hoặc tham số truy vấn (?tab=admin)
@@ -37,12 +39,13 @@ export default function App() {
   const [totalFoods, setTotalFoods] = useState(0);
   const [foodsList, setFoodsList] = useState([]);
 
-  // Trạng thái Người dùng & Hồ sơ cá nhân hóa
+  // Trạng thái Người dùng & Hồ sơ cá nhân hóa (Auth Gate)
   const [currentUser, setCurrentUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
-  // Gọi kiểm tra kết nối Backend và tải dữ liệu người dùng khi ứng dụng khởi chạy
+  // Gọi kiểm tra kết nối Backend và xác thực người dùng khi ứng dụng khởi chạy
   useEffect(() => {
     let isMounted = true;
 
@@ -71,22 +74,18 @@ export default function App() {
           if (isMounted && authRes?.success && authRes.user) {
             setCurrentUser(authRes.user);
             setUserProfile(authRes.user.profile);
+            setIsAuthChecking(false);
             return;
           }
         } catch (err) {
           console.warn('Phiên đăng nhập hết hạn hoặc không hợp lệ');
+          localStorage.removeItem('cacalo_token');
         }
       }
 
-      // Nếu chưa đăng nhập, tải hồ sơ mẫu từ DB để hiển thị giao diện sinh động
-      try {
-        const profRes = await getUserProfile();
-        if (isMounted && profRes?.success && profRes.user) {
-          // Lưu profile demo nhưng chưa gán user đăng nhập chính thức
-          setUserProfile(profRes.user.profile);
-        }
-      } catch (err) {
-        console.error('Không thể tải profile demo:', err);
+      if (isMounted) {
+        setCurrentUser(null);
+        setIsAuthChecking(false);
       }
     }
 
@@ -94,9 +93,20 @@ export default function App() {
     return () => { isMounted = false; };
   }, []);
 
-  const handleAuthSuccess = (user) => {
+  const handleAuthSuccess = async (user) => {
     setCurrentUser(user);
     setUserProfile(user.profile);
+    setIsAuthModalOpen(false);
+
+    // Tải danh sách món ăn nếu chưa có
+    if (foodsList.length === 0) {
+      try {
+        const foodsRes = await getFoods();
+        if (foodsRes?.data) setFoodsList(foodsRes.data);
+      } catch (err) {
+        console.error('Lỗi nạp danh sách món ăn:', err);
+      }
+    }
   };
 
   const handleProfileUpdated = (user) => {
@@ -104,16 +114,44 @@ export default function App() {
     setUserProfile(user.profile);
   };
 
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setUserProfile(null);
+    setActiveTabState('dashboard');
+    window.location.hash = '';
+  };
+
+  // Màn hình tải ban đầu
+  if (isAuthChecking) {
+    return (
+      <div className="login-screen-wrapper">
+        <div style={{ textAlign: 'center' }}>
+          <div className="login-brand-logo">
+            <Salad size={32} />
+          </div>
+          <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '12px' }}>
+            CaCalo
+          </div>
+          <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+            Đang khởi tạo ứng dụng...
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // YÊU CẦU 1: Bắt đầu vào phải hiện trang login trước, chỉ sau khi đăng nhập mới vào app
+  if (!currentUser) {
+    return <LoginPage onAuthSuccess={handleAuthSuccess} />;
+  }
+
   return (
     <div className="app-container">
       {/* 1. Header cố định phía trên */}
       <Header 
-        isOnline={isOnline} 
-        totalFoods={totalFoods}
         currentUser={currentUser}
         onOpenProfile={() => setActiveTab('profile')}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
-        onOpenAdmin={() => setActiveTab('admin')}
       />
 
       {/* 2. Khung thân chính */}
@@ -150,6 +188,7 @@ export default function App() {
               userProfile={userProfile}
               onProfileUpdated={handleProfileUpdated}
               onOpenAuthModal={() => setIsAuthModalOpen(true)}
+              onLogout={handleLogout}
             />
           )}
 
@@ -169,7 +208,7 @@ export default function App() {
         currentUser={currentUser}
       />
 
-      {/* 4. Hộp thoại Đăng nhập / Đăng ký */}
+      {/* 4. Hộp thoại Đăng nhập / Đăng ký bổ trợ */}
       <AuthModal 
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
