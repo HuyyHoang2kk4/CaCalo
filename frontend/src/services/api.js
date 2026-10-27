@@ -105,6 +105,7 @@ export const predictFoodImage = async (fileOrBlob) => {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
+      timeout: 60000, // Tăng lên 60s cho tác vụ Vision AI nặng
     });
   } catch (error) {
     console.error('Lỗi nhận diện ảnh:', error);

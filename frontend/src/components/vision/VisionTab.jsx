@@ -135,14 +135,15 @@ export default function VisionTab({ foods = [], currentUser, onOpenAuthModal }) 
       } else {
         setSaveStatus({
           type: 'error',
-          message: 'Không thể nhận diện món ăn. Vui lòng thử lại với ảnh rõ nét hơn.',
+          message: res?.error || res?.nhan_xet || 'Không thể nhận diện món ăn. Vui lòng thử lại với ảnh rõ nét hơn.',
         });
       }
     } catch (err) {
       console.error('Lỗi nhận diện:', err);
+      const detail = err.response?.data?.detail || err.message;
       setSaveStatus({
         type: 'error',
-        message: 'Lỗi nhận diện hình ảnh! Vui lòng kiểm tra kết nối Backend.',
+        message: detail ? `Lỗi: ${detail}` : 'Lỗi nhận diện hình ảnh! Vui lòng kiểm tra kết nối Backend (Port 8000).',
       });
     } finally {
       setIsAnalyzing(false);

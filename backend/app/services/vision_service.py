@@ -121,16 +121,20 @@ def call_gemini_vision(image_base64: str, system_prompt: str) -> Optional[Dict[s
         from google import genai
         from google.genai import types
 
-        client = genai.Client(api_key=gemini_key)
+        # Cấu hình timeout 12s cho mỗi model để không bị treo
+        client = genai.Client(
+            api_key=gemini_key,
+            http_options=types.HttpOptions(timeout=12000)
+        )
         img_bytes = base64.b64decode(image_base64)
         user_instruction = "Hãy phân tích ảnh món ăn này và xuất đúng định dạng JSON yêu cầu. Nhớ dùng tên chính xác từ danh sách hợp lệ."
 
+        # Ưu tiên flash-lite: Tốc độ cực nhanh (~1.5s - 4s), nhẹ và ít bị nghẽn mạng
         models = [
-            "gemini-3.5-flash",
             "gemini-3.5-flash-lite",
-            "gemini-3.7-flash",
             "gemini-3.1-flash-lite",
-            "gemini-flash-latest",
+            "gemini-3.5-flash",
+            "gemini-3.7-flash",
             "gemini-flash-lite-latest",
         ]
         for model_name in models:
@@ -154,12 +158,13 @@ def call_gemini_vision(image_base64: str, system_prompt: str) -> Optional[Dict[s
                     raw_text = re.sub(r"\s*```$", "", raw_text)
 
                 parsed = json.loads(raw_text)
+                parsed["_model_used"] = model_name
                 logger.info(
                     f"Google Gemini ({model_name}) Vision thành công: {len(parsed.get('mon_an', []))} món."
                 )
                 return parsed
             except Exception as model_err:
-                logger.warning(f"Thử nghiệm Gemini model {model_name} thất bại: {model_err}")
+                logger.warning(f"Thử nghiệm Gemini model {model_name} thất bại hoặc timeout: {model_err}")
 
     except Exception as e:
         logger.error(f"Lỗi gọi Google Gemini Vision API: {e}")
