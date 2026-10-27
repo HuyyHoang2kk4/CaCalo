@@ -159,30 +159,6 @@ export default function ProfileTab({ currentUser, userProfile, onProfileUpdated,
             </p>
           </div>
         </div>
-
-        <div className="profile-actions">
-          {currentUser ? (
-            <button 
-              type="button" 
-              className="btn btn-outline btn-sm"
-              onClick={handleLogout}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-            >
-              <LogOut size={16} />
-              <span>Đăng xuất</span>
-            </button>
-          ) : (
-            <button 
-              type="button" 
-              className="btn btn-primary btn-sm"
-              onClick={onOpenAuthModal}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-            >
-              <LogIn size={16} />
-              <span>Đăng nhập / Đăng ký</span>
-            </button>
-          )}
-        </div>
       </section>
 
       {/* 2. Thẻ hiển thị chỉ số sức khỏe & dinh dưỡng tính toán tự động */}

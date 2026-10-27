@@ -30,13 +30,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
   const [weightKg, setWeightKg] = useState(65);
   const [goal, setGoal] = useState('maintain');
 
-  // Điền nhanh tài khoản demo
-  const fillDemoAccount = () => {
-    setEmail('demo@cacalo.vn');
-    setPassword('demo');
-    setErrorMsg('');
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
@@ -126,24 +119,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
             Đăng ký tài khoản
           </button>
         </div>
-
-        {/* Nút Demo test nhanh */}
-        {mode === 'login' && (
-          <div className="demo-hint-box">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Sparkles size={16} color="var(--color-accent)" />
-              <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>Tài khoản kiểm thử có sẵn:</span>
-            </div>
-            <button 
-              type="button" 
-              className="btn btn-outline btn-sm"
-              onClick={fillDemoAccount}
-              style={{ fontSize: '0.75rem', padding: '4px 10px' }}
-            >
-              ⚡ Điền tài khoản Demo
-            </button>
-          </div>
-        )}
 
         {/* Thông báo lỗi / thành công */}
         {errorMsg && (

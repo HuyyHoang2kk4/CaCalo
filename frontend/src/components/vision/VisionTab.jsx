@@ -16,7 +16,7 @@ import { createMealLog, submitAIFeedback, predictFoodImage } from '../../service
 import { compressImage } from '../../services/imageUtils';
 import CameraModal from './CameraModal';
 
-export default function VisionTab({ foods = [] }) {
+export default function VisionTab({ foods = [], currentUser, onOpenAuthModal }) {
   // 1. Quản lý ảnh & Camera
   const fileInputRef = useRef(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
@@ -29,9 +29,16 @@ export default function VisionTab({ foods = [] }) {
   // Danh sách món đang hiển thị (người dùng có thể sửa gram, xóa, thêm)
   const [editableItems, setEditableItems] = useState([]);
 
-  // 3. Trạng thái lưu & Tìm kiếm thêm món thủ công
+  // 3. Trạng thái lưu & Loại bữa ăn (Sáng, Trưa, Tối, Phụ)
   const [saveStatus, setSaveStatus] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedMealType, setSelectedMealType] = useState(() => {
+    const h = new Date().getHours();
+    if (h >= 5 && h < 10) return 'breakfast';
+    if (h >= 10 && h < 14) return 'lunch';
+    if (h >= 14 && h < 17) return 'snack';
+    return 'dinner';
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddFood, setShowAddFood] = useState(false);
 
@@ -57,27 +64,32 @@ export default function VisionTab({ foods = [] }) {
     let calo = 0, protein = 0, carb = 0, fat = 0;
     for (const item of editableItems) {
       const m = item.matched_food;
+      const gram = Number(item.uoc_luong_gram) || 100;
+      const origGram = Number(item._original_gram) || gram || 100;
+
       if (m && m.matched) {
-        // Tính lại từ DB theo gram hiện tại (người dùng có thể đã sửa)
-        const gram = item.uoc_luong_gram;
-        calo += (m.calo_per_100g * gram) / 100;
-        protein += (m.protein_db / (item._original_gram || gram)) * gram;
-        carb += (m.carb_db / (item._original_gram || gram)) * gram;
-        fat += (m.fat_db / (item._original_gram || gram)) * gram;
+        // Tính lại từ DB theo gram hiện tại
+        const cal100 = (m.calo_per_100g !== undefined && m.calo_per_100g !== null)
+          ? Number(m.calo_per_100g)
+          : (Number(m.calo_db || 0) * 100 / origGram);
+        calo += (cal100 * gram) / 100;
+        protein += (Number(m.protein_db || 0) / origGram) * gram;
+        carb += (Number(m.carb_db || 0) / origGram) * gram;
+        fat += (Number(m.fat_db || 0) / origGram) * gram;
       } else {
         // Dùng số liệu Gemini ước lượng (tỷ lệ theo gram)
-        const ratio = item.uoc_luong_gram / (item._original_gram || item.uoc_luong_gram);
-        calo += item.calo_ai * ratio;
-        protein += item.protein_ai * ratio;
-        carb += item.carb_ai * ratio;
-        fat += item.fat_ai * ratio;
+        const ratio = gram / origGram;
+        calo += (Number(item.calo_ai) || 0) * ratio;
+        protein += (Number(item.protein_ai) || 0) * ratio;
+        carb += (Number(item.carb_ai) || 0) * ratio;
+        fat += (Number(item.fat_ai) || 0) * ratio;
       }
     }
     return {
-      calo: Math.round(calo),
-      protein: Number(protein.toFixed(1)),
-      carb: Number(carb.toFixed(1)),
-      fat: Number(fat.toFixed(1)),
+      calo: Math.round(calo) || 0,
+      protein: Number((protein || 0).toFixed(1)),
+      carb: Number((carb || 0).toFixed(1)),
+      fat: Number((fat || 0).toFixed(1)),
     };
   }, [editableItems]);
 
@@ -222,27 +234,34 @@ export default function VisionTab({ foods = [] }) {
   // LƯU VÀO NHẬT KÝ BỮA ĂN (PostgreSQL)
   // ============================================================
   const handleSaveMealLog = async () => {
+    if (!currentUser) {
+      if (onOpenAuthModal) onOpenAuthModal();
+      return;
+    }
     if (editableItems.length === 0) return;
     setIsSubmitting(true);
     setSaveStatus(null);
 
     const items = editableItems.map((item) => {
       const m = item.matched_food;
-      const gram = item.uoc_luong_gram;
+      const gram = Number(item.uoc_luong_gram) || 100;
+      const origGram = Number(item._original_gram) || gram || 100;
       let cal, pro, carb, fat;
 
       if (m && m.matched) {
-        cal = Math.round((m.calo_per_100g * gram) / 100);
-        const ratio = gram / (item._original_gram || gram);
-        pro = Number((m.protein_db * ratio).toFixed(1));
-        carb = Number((m.carb_db * ratio).toFixed(1));
-        fat = Number((m.fat_db * ratio).toFixed(1));
+        const cal100 = (m.calo_per_100g !== undefined && m.calo_per_100g !== null)
+          ? Number(m.calo_per_100g)
+          : (Number(m.calo_db || 0) * 100 / origGram);
+        cal = Math.round((cal100 * gram) / 100) || 0;
+        pro = Number(((Number(m.protein_db || 0) / origGram) * gram).toFixed(1)) || 0;
+        carb = Number(((Number(m.carb_db || 0) / origGram) * gram).toFixed(1)) || 0;
+        fat = Number(((Number(m.fat_db || 0) / origGram) * gram).toFixed(1)) || 0;
       } else {
-        const ratio = gram / (item._original_gram || gram);
-        cal = Math.round(item.calo_ai * ratio);
-        pro = Number((item.protein_ai * ratio).toFixed(1));
-        carb = Number((item.carb_ai * ratio).toFixed(1));
-        fat = Number((item.fat_ai * ratio).toFixed(1));
+        const ratio = gram / origGram;
+        cal = Math.round((Number(item.calo_ai) || 0) * ratio) || 0;
+        pro = Number(((Number(item.protein_ai) || 0) * ratio).toFixed(1)) || 0;
+        carb = Number(((Number(item.carb_ai) || 0) * ratio).toFixed(1)) || 0;
+        fat = Number(((Number(item.fat_ai) || 0) * ratio).toFixed(1)) || 0;
       }
 
       return {
@@ -261,8 +280,9 @@ export default function VisionTab({ foods = [] }) {
       };
     });
 
+    const mealLabels = { breakfast: 'Bữa Sáng', lunch: 'Bữa Trưa', dinner: 'Bữa Tối', snack: 'Bữa Phụ' };
     const payload = {
-      meal_type: 'lunch',
+      meal_type: selectedMealType || 'lunch',
       items: items,
     };
 
@@ -270,7 +290,7 @@ export default function VisionTab({ foods = [] }) {
       const res = await createMealLog(payload);
       setSaveStatus({
         type: 'success',
-        message: `Đã lưu thành công ${items.length} món vào PostgreSQL! (Mã bữa ăn: #${res.meal_log_id})`,
+        message: `Đã lưu thành công ${items.length} món vào ${mealLabels[selectedMealType] || 'nhật ký'} (Mã bữa ăn: #${res.meal_log_id})! Bạn có thể xem lại tại tab Tổng quan.`,
       });
     } catch (err) {
       setSaveStatus({
@@ -318,12 +338,17 @@ export default function VisionTab({ foods = [] }) {
   // ============================================================
   const getItemCalories = (item) => {
     const m = item.matched_food;
-    const gram = item.uoc_luong_gram;
+    const gram = Number(item.uoc_luong_gram) || 100;
+    const origGram = Number(item._original_gram) || gram || 100;
+
     if (m && m.matched) {
-      return Math.round((m.calo_per_100g * gram) / 100);
+      const cal100 = (m.calo_per_100g !== undefined && m.calo_per_100g !== null)
+        ? Number(m.calo_per_100g)
+        : (Number(m.calo_db || 0) * 100 / origGram);
+      return Math.round((cal100 * gram) / 100) || 0;
     }
-    const ratio = gram / (item._original_gram || gram);
-    return Math.round(item.calo_ai * ratio);
+    const ratio = gram / origGram;
+    return Math.round((Number(item.calo_ai) || 0) * ratio) || 0;
   };
 
   // ============================================================
@@ -370,7 +395,7 @@ export default function VisionTab({ foods = [] }) {
           <div className="card-header">
             <h2 className="card-title">Hình ảnh món ăn</h2>
             <span className="card-subtitle">
-              {analysisResult?.ai_source === 'gemini-flash' ? '✨ Gemini Flash' : analysisResult?.ai_source === 'local_fallback' ? '🔬 Local Analyzer' : 'WebRTC Camera & Tải tệp'}
+              {analysisResult?.ai_source?.includes('gemini') ? '✨ Google Gemini AI Vision' : 'WebRTC Camera & Tải tệp'}
             </span>
           </div>
 
@@ -547,12 +572,17 @@ export default function VisionTab({ foods = [] }) {
                   <span
                     className="brand-badge"
                     style={{
-                      backgroundColor: analysisResult.ai_source === 'gemini-flash' ? '#EFF6FF' : '#FEF3C7',
-                      color: analysisResult.ai_source === 'gemini-flash' ? '#2563EB' : '#D97706',
+                      backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                      color: 'var(--color-accent)',
+                      border: '1px solid rgba(16, 185, 129, 0.3)',
+                      fontWeight: 600,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
                     }}
                   >
-                    <Sparkles size={12} style={{ display: 'inline', marginRight: '4px' }} />
-                    {analysisResult.ai_source === 'gemini-flash' ? 'Gemini Flash' : 'Local Analyzer'}
+                    <Sparkles size={12} />
+                    Google Gemini AI Vision
                   </span>
                 )}
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
@@ -597,8 +627,9 @@ export default function VisionTab({ foods = [] }) {
                     style={{
                       padding: '12px 14px',
                       borderRadius: 'var(--radius-inner)',
-                      border: `1px solid ${isMatched ? '#D1FAE5' : '#FEF3C7'}`,
-                      backgroundColor: isMatched ? '#F0FDF4' : '#FFFBEB',
+                      border: '1px solid var(--border-color)',
+                      borderLeft: isMatched ? '4px solid var(--color-accent)' : '4px solid #F59E0B',
+                      backgroundColor: 'var(--bg-surface)',
                     }}
                   >
                     {/* Dòng 1: Tên món + Badge + Nút xóa */}
@@ -679,15 +710,15 @@ export default function VisionTab({ foods = [] }) {
                     <div style={{ display: 'flex', gap: '12px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                       {isMatched ? (
                         <>
-                          <span>Đạm: <strong>{Number((m.protein_db * item.uoc_luong_gram / (item._original_gram || item.uoc_luong_gram)).toFixed(1))}g</strong></span>
-                          <span>Carb: <strong>{Number((m.carb_db * item.uoc_luong_gram / (item._original_gram || item.uoc_luong_gram)).toFixed(1))}g</strong></span>
-                          <span>Béo: <strong>{Number((m.fat_db * item.uoc_luong_gram / (item._original_gram || item.uoc_luong_gram)).toFixed(1))}g</strong></span>
+                          <span>Đạm: <strong>{Number(((Number(m?.protein_db || 0) * (Number(item.uoc_luong_gram) || 100)) / (Number(item._original_gram) || Number(item.uoc_luong_gram) || 100)).toFixed(1))}g</strong></span>
+                          <span>Carb: <strong>{Number(((Number(m?.carb_db || 0) * (Number(item.uoc_luong_gram) || 100)) / (Number(item._original_gram) || Number(item.uoc_luong_gram) || 100)).toFixed(1))}g</strong></span>
+                          <span>Béo: <strong>{Number(((Number(m?.fat_db || 0) * (Number(item.uoc_luong_gram) || 100)) / (Number(item._original_gram) || Number(item.uoc_luong_gram) || 100)).toFixed(1))}g</strong></span>
                         </>
                       ) : (
                         <>
-                          <span>Đạm: <strong>{item.protein_ai}g</strong></span>
-                          <span>Carb: <strong>{item.carb_ai}g</strong></span>
-                          <span>Béo: <strong>{item.fat_ai}g</strong></span>
+                          <span>Đạm: <strong>{Number(item.protein_ai || 0)}g</strong></span>
+                          <span>Carb: <strong>{Number(item.carb_ai || 0)}g</strong></span>
+                          <span>Béo: <strong>{Number(item.fat_ai || 0)}g</strong></span>
                         </>
                       )}
                     </div>
@@ -817,16 +848,61 @@ export default function VisionTab({ foods = [] }) {
                 </div>
               </div>
 
-              {/* NÚT LƯU */}
+              {/* CHỌN LOẠI BỮA ĂN (Sáng, Trưa, Tối, Phụ) */}
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                  Ghi nhận vào bữa ăn:
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+                  {[
+                    { key: 'breakfast', label: 'Bữa Sáng', icon: '🌅' },
+                    { key: 'lunch', label: 'Bữa Trưa', icon: '☀️' },
+                    { key: 'dinner', label: 'Bữa Tối', icon: '🌙' },
+                    { key: 'snack', label: 'Bữa Phụ', icon: '🍎' },
+                  ].map((m) => (
+                    <button
+                      key={m.key}
+                      type="button"
+                      onClick={() => setSelectedMealType(m.key)}
+                      style={{
+                        padding: '8px 4px',
+                        borderRadius: 'var(--radius-inner)',
+                        fontSize: '0.78rem',
+                        fontWeight: 600,
+                        border: selectedMealType === m.key ? '2px solid var(--color-accent)' : '1px solid var(--border-color)',
+                        backgroundColor: selectedMealType === m.key ? 'rgba(16, 185, 129, 0.15)' : 'var(--bg-card)',
+                        color: selectedMealType === m.key ? 'var(--color-accent)' : 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '3px',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <span style={{ fontSize: '1.1rem' }}>{m.icon}</span>
+                      <span>{m.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* NÚT LƯU VÀO NHẬT KÝ DATABASE */}
               <button
                 className="btn btn-primary"
-                style={{ width: '100%', height: '44px' }}
+                style={{ width: '100%', height: '46px', fontSize: '0.92rem', fontWeight: 600 }}
                 disabled={isSubmitting || editableItems.length === 0}
                 onClick={handleSaveMealLog}
               >
                 {isSubmitting
                   ? 'Đang lưu vào PostgreSQL...'
-                  : `✅ Xác nhận & Lưu ${editableItems.length} món vào nhật ký`}
+                  : (!currentUser
+                    ? `🔑 Đăng nhập để lưu vào nhật ký`
+                    : `💾 Lưu ${editableItems.length} món vào ${
+                        selectedMealType === 'breakfast' ? 'Bữa Sáng' :
+                        selectedMealType === 'lunch' ? 'Bữa Trưa' :
+                        selectedMealType === 'dinner' ? 'Bữa Tối' : 'Bữa Phụ'
+                      }`)}
               </button>
             </>
           )}

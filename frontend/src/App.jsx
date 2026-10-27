@@ -1,10 +1,13 @@
 /**
  * MỤC ĐÍCH: Thành phần gốc (Root Component) của ứng dụng CaCalo.
- * QUẢN LÝ TRẠNG THÁI: Tab đang chọn, Trạng thái người dùng (Auth), Hồ sơ cá nhân hóa (Profile), Kết nối Backend.
- * BỐ CỤC: Header cố định, Desktop Sidebar, Main Content, Mobile Bottom Navigation, AuthModal.
+ * QUẢN LÝ TRẠNG THÁI: Tab đang chọn, Trạng thái người dùng (Auth), Giao diện Sáng/Tối (Theme), Kết nối Backend.
+ * CHẾ ĐỘ TRẢI NGHIỆM:
+ * - Khách chưa đăng nhập: Được tự do sử dụng tính năng "Quét món ăn AI" để trải nghiệm.
+ * - Các tính năng cá nhân hóa (Dashboard, Tủ lạnh, Hồ sơ cá nhân): Khóa và yêu cầu đăng nhập.
+ * - Header thông minh: Avatar dropdown hỗ trợ Đăng nhập, Đăng xuất và đổi giao diện Sáng / Tối.
  */
 import React, { useState, useEffect } from 'react';
-import { Salad } from 'lucide-react';
+import { Salad, Flame, Refrigerator, User as UserIcon } from 'lucide-react';
 import Header from './components/layout/Header';
 import { BottomNav, DesktopSidebar } from './components/layout/Navigation';
 import DashboardTab from './components/dashboard/DashboardTab';
@@ -13,18 +16,32 @@ import FridgeTab from './components/fridge/FridgeTab';
 import ProfileTab from './components/profile/ProfileTab';
 import AdminTab from './components/admin/AdminTab';
 import AuthModal from './components/auth/AuthModal';
-import LoginPage from './components/auth/LoginPage';
+import LockedFeatureView from './components/common/LockedFeatureView';
 import { checkHealth, getFoods, getCurrentUser } from './services/api';
 
 export default function App() {
-  // Hỗ trợ khởi tạo tab từ URL hash (#admin) hoặc tham số truy vấn (?tab=admin)
+  // 1. Quản lý Theme Sáng / Tối (Light / Dark mode)
+  const [theme, setTheme] = useState(() => localStorage.getItem('cacalo_theme') || 'light');
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('cacalo_theme', theme);
+  }, [theme]);
+
+  // 2. Trạng thái Người dùng & Hồ sơ cá nhân hóa
+  const [currentUser, setCurrentUser] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+
+  // 3. Tab đang chọn: Khách chưa đăng nhập mặc định vào tab 'vision' (Quét món ăn)
   const getInitialTab = () => {
     const hash = window.location.hash.replace('#', '');
     if (['dashboard', 'vision', 'fridge', 'profile', 'admin'].includes(hash)) return hash;
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab');
     if (['dashboard', 'vision', 'fridge', 'profile', 'admin'].includes(tabParam)) return tabParam;
-    return 'dashboard';
+    return 'vision'; // Mặc định mở Quét món ăn để khách trải nghiệm ngay
   };
 
   const [activeTab, setActiveTabState] = useState(getInitialTab);
@@ -38,12 +55,6 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(false);
   const [totalFoods, setTotalFoods] = useState(0);
   const [foodsList, setFoodsList] = useState([]);
-
-  // Trạng thái Người dùng & Hồ sơ cá nhân hóa (Auth Gate)
-  const [currentUser, setCurrentUser] = useState(null);
-  const [userProfile, setUserProfile] = useState(null);
-  const [isAuthChecking, setIsAuthChecking] = useState(true);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   // Gọi kiểm tra kết nối Backend và xác thực người dùng khi ứng dụng khởi chạy
   useEffect(() => {
@@ -74,6 +85,10 @@ export default function App() {
           if (isMounted && authRes?.success && authRes.user) {
             setCurrentUser(authRes.user);
             setUserProfile(authRes.user.profile);
+            // Nếu người dùng đã đăng nhập và chưa chọn tab qua hash, chuyển sang Dashboard
+            if (!window.location.hash) {
+              setActiveTabState('dashboard');
+            }
             setIsAuthChecking(false);
             return;
           }
@@ -115,10 +130,11 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('cacalo_token');
     setCurrentUser(null);
     setUserProfile(null);
-    setActiveTabState('dashboard');
-    window.location.hash = '';
+    setActiveTabState('vision');
+    window.location.hash = 'vision';
   };
 
   // Màn hình tải ban đầu
@@ -140,18 +156,17 @@ export default function App() {
     );
   }
 
-  // YÊU CẦU 1: Bắt đầu vào phải hiện trang login trước, chỉ sau khi đăng nhập mới vào app
-  if (!currentUser) {
-    return <LoginPage onAuthSuccess={handleAuthSuccess} />;
-  }
-
   return (
     <div className="app-container">
-      {/* 1. Header cố định phía trên */}
+      {/* 1. Header cố định phía trên: chứa Logo và Menu Avatar (Đăng nhập, Sáng/Tối, Đăng xuất) */}
       <Header 
         currentUser={currentUser}
+        theme={theme}
+        onToggleTheme={(newTheme) => setTheme(newTheme)}
         onOpenProfile={() => setActiveTab('profile')}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        onOpenAdmin={() => setActiveTab('admin')}
+        onLogout={handleLogout}
       />
 
       {/* 2. Khung thân chính */}
@@ -165,33 +180,72 @@ export default function App() {
 
         {/* Nội dung trang theo từng tab */}
         <main className="main-content" id="main-content">
+          {/* TAB 1: DASHBOARD (Yêu cầu đăng nhập để xem số liệu cá nhân) */}
           {activeTab === 'dashboard' && (
-            <DashboardTab 
-              foods={foodsList} 
-              onSwitchToScan={() => setActiveTab('vision')}
-              userProfile={userProfile}
-              onOpenProfile={() => setActiveTab('profile')}
-            />
+            currentUser ? (
+              <DashboardTab 
+                foods={foodsList} 
+                onSwitchToScan={() => setActiveTab('vision')}
+                userProfile={userProfile}
+                onOpenProfile={() => setActiveTab('profile')}
+              />
+            ) : (
+              <LockedFeatureView 
+                featureName="Dashboard Dinh Dưỡng Cá Nhân"
+                description="Đăng nhập tài khoản để tự động theo dõi lượng calo nạp vào hàng ngày, tỉ lệ Đạm / Đường / Chất béo và lưu lại lịch sử các bữa ăn của bạn."
+                icon={Flame}
+                onOpenAuth={() => setIsAuthModalOpen(true)}
+                onSwitchToVision={() => setActiveTab('vision')}
+              />
+            )
           )}
 
+          {/* TAB 2: QUÉT MÓN ĂN (Miễn phí & Tự do sử dụng không cần đăng nhập) */}
           {activeTab === 'vision' && (
-            <VisionTab foods={foodsList} />
-          )}
-
-          {activeTab === 'fridge' && (
-            <FridgeTab userProfile={userProfile} />
-          )}
-
-          {activeTab === 'profile' && (
-            <ProfileTab 
+            <VisionTab 
+              foods={foodsList} 
               currentUser={currentUser}
-              userProfile={userProfile}
-              onProfileUpdated={handleProfileUpdated}
               onOpenAuthModal={() => setIsAuthModalOpen(true)}
-              onLogout={handleLogout}
             />
           )}
 
+          {/* TAB 3: TỦ LẠNH & GỢI Ý (Yêu cầu đăng nhập để lưu trữ nguyên liệu cá nhân) */}
+          {activeTab === 'fridge' && (
+            currentUser ? (
+              <FridgeTab userProfile={userProfile} />
+            ) : (
+              <LockedFeatureView 
+                featureName="Tủ Lạnh Thông Minh & Gợi Ý Thực Đơn"
+                description="Đăng nhập để quản lý kho nguyên liệu thực phẩm trong tủ lạnh của bạn và nhận công thức nấu ăn do AI gợi ý tối ưu theo calo mục tiêu."
+                icon={Refrigerator}
+                onOpenAuth={() => setIsAuthModalOpen(true)}
+                onSwitchToVision={() => setActiveTab('vision')}
+              />
+            )
+          )}
+
+          {/* TAB 4: HỒ SƠ & CÁ NHÂN HÓA (Yêu cầu đăng nhập) */}
+          {activeTab === 'profile' && (
+            currentUser ? (
+              <ProfileTab 
+                currentUser={currentUser}
+                userProfile={userProfile}
+                onProfileUpdated={handleProfileUpdated}
+                onOpenAuthModal={() => setIsAuthModalOpen(true)}
+                onLogout={handleLogout}
+              />
+            ) : (
+              <LockedFeatureView 
+                featureName="Hồ Sơ & Cá Nhân Hóa Dinh Dưỡng"
+                description="Đăng nhập để tính toán chỉ số thể trạng chuẩn Mifflin-St Jeor (BMI, BMR, TDEE), đặt mục tiêu giảm/tăng cân và lưu danh sách dị ứng thực phẩm."
+                icon={UserIcon}
+                onOpenAuth={() => setIsAuthModalOpen(true)}
+                onSwitchToVision={() => setActiveTab('vision')}
+              />
+            )
+          )}
+
+          {/* TAB 5: QUẢN TRỊ ADMIN (Chỉ dành riêng cho tài khoản role admin) */}
           {activeTab === 'admin' && (
             currentUser?.role === 'admin' ? (
               <AdminTab 
@@ -199,15 +253,13 @@ export default function App() {
                 onSwitchToApp={() => setActiveTab('dashboard')}
               />
             ) : (
-              <div className="card" style={{ padding: '48px 24px', textAlign: 'center', maxWidth: '520px', margin: '40px auto' }}>
-                <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '8px' }}>Không có quyền truy cập</h3>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '16px' }}>
-                  Khu vực Quản trị chỉ dành riêng cho tài khoản Quản trị viên (Admin).
-                </p>
-                <button className="btn btn-primary" onClick={() => setActiveTab('dashboard')}>
-                  Quay lại Dashboard
-                </button>
-              </div>
+              <LockedFeatureView 
+                featureName="Khu Vực Quản Trị Hệ Thống"
+                description="Khu vực này chỉ dành riêng cho tài khoản Quản trị viên (Admin) để kiểm duyệt dữ liệu món ăn, công thức nấu ăn và MLOps AI."
+                icon={Salad}
+                onOpenAuth={() => setIsAuthModalOpen(true)}
+                onSwitchToVision={() => setActiveTab('vision')}
+              />
             )
           )}
         </main>
@@ -220,7 +272,7 @@ export default function App() {
         currentUser={currentUser}
       />
 
-      {/* 4. Hộp thoại Đăng nhập / Đăng ký bổ trợ */}
+      {/* 4. Hộp thoại Đăng nhập / Đăng ký tiêu chuẩn */}
       <AuthModal 
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}

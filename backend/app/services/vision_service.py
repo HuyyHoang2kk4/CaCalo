@@ -125,7 +125,14 @@ def call_gemini_vision(image_base64: str, system_prompt: str) -> Optional[Dict[s
         img_bytes = base64.b64decode(image_base64)
         user_instruction = "Hãy phân tích ảnh món ăn này và xuất đúng định dạng JSON yêu cầu. Nhớ dùng tên chính xác từ danh sách hợp lệ."
 
-        models = ["gemini-2.0-flash-lite", "gemini-2.0-flash", "gemini-1.5-flash"]
+        models = [
+            "gemini-3.5-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-3.7-flash",
+            "gemini-3.1-flash-lite",
+            "gemini-flash-latest",
+            "gemini-flash-lite-latest",
+        ]
         for model_name in models:
             try:
                 response = client.models.generate_content(
@@ -148,8 +155,7 @@ def call_gemini_vision(image_base64: str, system_prompt: str) -> Optional[Dict[s
 
                 parsed = json.loads(raw_text)
                 logger.info(
-                    f"Gemini ({model_name}) Vision: {len(parsed.get('mon_an', []))} món — "
-                    f"Prompt chứa danh sách DB (Constrained AI active)"
+                    f"Google Gemini ({model_name}) Vision thành công: {len(parsed.get('mon_an', []))} món."
                 )
                 return parsed
             except Exception as model_err:
@@ -303,7 +309,11 @@ def match_item_with_db(ai_name: str, ai_gram: float, db: Session) -> Dict[str, A
         "protein_db": 0,
         "carb_db": 0,
         "fat_db": 0,
-        "data_source": "Google Gemini ước lượng",
+        "calo_per_100g": 0.0,
+        "protein_per_100g": 0.0,
+        "carb_per_100g": 0.0,
+        "fat_per_100g": 0.0,
+        "data_source": "Google Gemini AI ước lượng",
         "servings": [],
         "toppings": []
     }
@@ -427,6 +437,10 @@ def fallback_local_predict(image_bytes: bytes, db: Session) -> Dict[str, Any]:
                 "protein_db": pro,
                 "carb_db": carb,
                 "fat_db": fat,
+                "calo_per_100g": float(nutrition.calories_kcal) if nutrition else (round(calo * 100.0 / gram, 1) if gram else 200.0),
+                "protein_per_100g": float(nutrition.protein_g) if nutrition else (round(pro * 100.0 / gram, 1) if gram else 10.0),
+                "carb_per_100g": float(nutrition.carb_g) if nutrition else (round(carb * 100.0 / gram, 1) if gram else 25.0),
+                "fat_per_100g": float(nutrition.fat_g) if nutrition else (round(fat * 100.0 / gram, 1) if gram else 5.0),
                 "data_source": food.source or "CSDL CaCalo",
                 "servings": [
                     {
@@ -466,14 +480,12 @@ def fallback_local_predict(image_bytes: bytes, db: Session) -> Dict[str, Any]:
 
 def predict_food_image(image_bytes: bytes, db: Session) -> Dict[str, Any]:
     """
-    Hàm phân tích ảnh chính thức — Kiến trúc Constrained AI + DB Lookup:
-    1. Build Vision Prompt với danh sách tên chuẩn từ DB (Constrained AI).
-    2. Gọi Gemini Vision — AI bắt buộc chọn tên từ danh sách → match rate cao.
-    3. Đối chiếu từng món với DB → tính Calo/Macro CHÍNH XÁC từ DB.
-    4. Fallback Local nếu mất mạng hoặc API không khả dụng.
-
-    NGUYÊN TẮC: gram do AI ước lượng (chấp nhận được vì phụ thuộc ảnh).
-                Calo/Macro luôn từ DB — không bao giờ dùng số AI ước lượng.
+    Hàm phân tích ảnh 100% sử dụng Google Gemini Flash Vision API:
+    1. Xây dựng prompt kèm danh sách món ăn từ DB để AI ưu tiên nhận diện chuẩn hóa.
+    2. Gọi trực tiếp Gemini Vision (100% AI, không dùng local fallback).
+    3. Nếu món khớp trong CSDL -> Lấy Calo & Macro chuẩn từ Viện Dinh Dưỡng.
+       Nếu món mới ngoài DB -> Dùng trực tiếp số liệu do Gemini AI tính toán.
+    4. Không bao giờ đoán mò bằng Local Fallback.
     """
     image = preprocess_image(image_bytes)
     image_b64 = image_to_base64(image)
@@ -484,54 +496,98 @@ def predict_food_image(image_bytes: bytes, db: Session) -> Dict[str, Any]:
     # 2. Gọi Gemini với prompt đã inject DB food list
     ai_result = call_gemini_vision(image_b64, vision_prompt)
 
-    if not ai_result or "mon_an" not in ai_result:
-        logger.info("Gemini Vision không khả dụng -> Chuyển sang Local Fallback")
-        return fallback_local_predict(image_bytes, db)
+    if not ai_result or not isinstance(ai_result, dict):
+        return {
+            "success": False,
+            "ai_source": "gemini-3.5-flash",
+            "items": [],
+            "tong_calo_ai": 0,
+            "tong_calo_db": 0,
+            "error": "Không thể kết nối đến Google Gemini AI Vision. Vui lòng kiểm tra lại kết nối mạng hoặc thử lại sau vài giây.",
+            "nhan_xet": "Lỗi kết nối AI"
+        }
+
+    raw_items = ai_result.get("mon_an", [])
+    if not raw_items:
+        return {
+            "success": False,
+            "ai_source": "gemini-3.5-flash",
+            "items": [],
+            "tong_calo_ai": 0,
+            "tong_calo_db": 0,
+            "error": "Google Gemini AI không tìm thấy món ăn nào trong ảnh. Vui lòng chụp rõ món ăn hơn.",
+            "nhan_xet": ai_result.get("nhan_xet", "Không nhận diện được món ăn.")
+        }
 
     # 3. Bóc tách và đối chiếu CSDL PostgreSQL
     items = []
     tong_calo_ai = 0
     tong_calo_db = 0
 
-    for mon in ai_result.get("mon_an", []):
-        ten = mon.get("ten", "Không rõ")
-        gram = float(mon.get("uoc_luong_gram", 200))
-        calo_ai = mon.get("calo", 0)   # Chỉ dùng làm tham chiếu, không dùng làm kết quả chính
-        protein_ai = mon.get("protein", 0)
-        carb_ai = mon.get("carb", 0)
-        fat_ai = mon.get("fat", 0)
-        ghi_chu = mon.get("ghi_chu", "")
+    for mon in raw_items:
+        ten = str(mon.get("ten", "Không rõ")).strip()
+        try:
+            gram = float(mon.get("uoc_luong_gram", 200))
+        except (ValueError, TypeError):
+            gram = 200.0
 
+        try:
+            calo_ai = round(float(mon.get("calo", 0)))
+        except (ValueError, TypeError):
+            calo_ai = 200
+
+        try:
+            protein_ai = round(float(mon.get("protein", 0)), 1)
+        except (ValueError, TypeError):
+            protein_ai = 10.0
+
+        try:
+            carb_ai = round(float(mon.get("carb", 0)), 1)
+        except (ValueError, TypeError):
+            carb_ai = 25.0
+
+        try:
+            fat_ai = round(float(mon.get("fat", 0)), 1)
+        except (ValueError, TypeError):
+            fat_ai = 5.0
+
+        ghi_chu = mon.get("ghi_chu", "")
         tong_calo_ai += calo_ai
 
-        # Đối chiếu với DB (nhờ tên đã chuẩn hóa, match rate cao hơn)
+        # Đối chiếu với DB
         matched = match_item_with_db(ten, gram, db)
 
         if matched.get("matched"):
-            # LUÔN dùng số từ DB — không dùng số AI ước lượng
             tong_calo_db += matched["calo_db"]
         else:
-            # Chỉ fallback AI khi thực sự không tìm được trong DB
             tong_calo_db += calo_ai
-            logger.info(f"Không tìm thấy '{ten}' trong DB — dùng AI ước lượng tạm thời")
+            matched["calo_db"] = calo_ai
+            matched["protein_db"] = protein_ai
+            matched["carb_db"] = carb_ai
+            matched["fat_db"] = fat_ai
+            matched["calo_per_100g"] = round((calo_ai * 100.0 / gram), 1) if gram > 0 else 200.0
+            matched["protein_per_100g"] = round((protein_ai * 100.0 / gram), 1) if gram > 0 else 10.0
+            matched["carb_per_100g"] = round((carb_ai * 100.0 / gram), 1) if gram > 0 else 25.0
+            matched["fat_per_100g"] = round((fat_ai * 100.0 / gram), 1) if gram > 0 else 5.0
+            logger.info(f"Món ăn ngoài DB: '{ten}' — tính theo số liệu Gemini AI ({calo_ai} kcal)")
 
         items.append({
             "ten": ten,
             "uoc_luong_gram": gram,
-            "calo_ai": calo_ai,           # Giữ để hiển thị tham chiếu AI
+            "calo_ai": calo_ai,
             "protein_ai": protein_ai,
             "carb_ai": carb_ai,
             "fat_ai": fat_ai,
             "ghi_chu": ghi_chu,
-            "matched_food": matched        # Số DB luôn ưu tiên trên frontend
+            "matched_food": matched
         })
 
     return {
         "success": True,
-        "ai_source": "gemini-constrained",  # Đánh dấu đã dùng Constrained AI
+        "ai_source": "gemini-3.5-flash",
         "items": items,
         "tong_calo_ai": tong_calo_ai,
         "tong_calo_db": tong_calo_db,
-        "nhan_xet": ai_result.get("nhan_xet", "Bữa ăn cân đối"),
+        "nhan_xet": ai_result.get("nhan_xet", "Bữa ăn cân đối dinh dưỡng."),
         "raw_ai_response": ai_result
     }

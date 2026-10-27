@@ -70,6 +70,32 @@
   --container-max-width: 1152px;
 }
 
+[data-theme="dark"] {
+  /* 60% Nền chủ đạo chế độ tối (Sleek Dark Slate) */
+  --bg-primary: #0B0F19;       /* Nền trang tối sâu */
+  --bg-card: #151D2E;          /* Nền thẻ nội dung */
+  --bg-surface: #1E293B;       /* Nền khối phụ, ô input */
+  --bg-surface-hover: #2B384E; /* Nền khi hover */
+
+  /* 30% Cấu trúc & Viền */
+  --border-color: rgba(255, 255, 255, 0.08);
+  --border-strong: #334155;
+  --shadow-subtle: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-card: 0 4px 10px rgba(0, 0, 0, 0.4);
+
+  /* 10% Màu nhấn Emerald */
+  --color-accent: #10B981;
+  --color-accent-hover: #34D399;
+  --color-accent-light: rgba(16, 185, 129, 0.15);
+  --color-accent-border: rgba(16, 185, 129, 0.35);
+
+  /* Typography Colors */
+  --text-primary: #F8FAFC;
+  --text-secondary: #CBD5E1;
+  --text-muted: #94A3B8;
+}
+
+
 /* ==========================================================================
    2. RESET & BASE STYLES
    ========================================================================== */
@@ -399,7 +425,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
+  background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg-surface) 100%);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-outer);
   padding: var(--space-6);
@@ -1931,4 +1957,225 @@ button {
 .quick-btn-admin:hover {
   background-color: #4F46E5;
   border-color: #4F46E5;
+}
+
+
+/* ==========================================================================
+   15. USER DROPDOWN MENU & THEME SWITCHER (AVATAR MENU)
+   ========================================================================== */
+.user-dropdown-container {
+  position: relative;
+  display: inline-block;
+}
+
+.header-user-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.header-user-btn:hover,
+.header-user-btn.active {
+  background-color: var(--bg-surface-hover);
+  border-color: var(--color-accent-border);
+}
+
+.user-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 260px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-inner);
+  box-shadow: 0 12px 24px -4px rgba(0, 0, 0, 0.15), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  padding: 8px;
+  z-index: 1050;
+  animation: slideUp 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dropdown-user-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 12px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 6px;
+}
+
+.dropdown-user-info {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dropdown-user-name {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dropdown-user-email {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dropdown-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dropdown-item:hover {
+  background-color: var(--bg-surface-hover);
+}
+
+.dropdown-item.danger {
+  color: var(--color-danger);
+}
+
+.dropdown-item.danger:hover {
+  background-color: rgba(225, 29, 72, 0.1);
+}
+
+.dropdown-divider {
+  height: 1px;
+  background-color: var(--border-color);
+  margin: 6px 0;
+}
+
+/* Theme Switcher in Dropdown */
+.dropdown-theme-section {
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.theme-toggle-pill {
+  display: flex;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-pill);
+  padding: 2px;
+  gap: 2px;
+}
+
+.theme-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: none;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.theme-btn.active {
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* ==========================================================================
+   16. LOCKED FEATURE CARD (CHO CHẾ ĐỘ DÙNG THỬ CHƯA ĐĂNG NHẬP)
+   ========================================================================== */
+.locked-feature-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 16px;
+  min-height: 480px;
+}
+
+.locked-feature-card {
+  max-width: 520px;
+  width: 100%;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-outer);
+  padding: 36px 28px;
+  text-align: center;
+  box-shadow: var(--shadow-card);
+  animation: slideUp 0.25s ease-out;
+}
+
+.locked-feature-icon-wrapper {
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  background-color: var(--color-accent-light);
+  color: var(--color-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+}
+
+.locked-feature-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.locked-feature-desc {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+.locked-feature-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Dark mode form elements override */
+[data-theme="dark"] .form-input,
+[data-theme="dark"] select.form-input {
+  background-color: #1E293B;
+  border-color: #334155;
+  color: #F8FAFC;
+}
+
+[data-theme="dark"] .form-input:focus {
+  border-color: var(--color-accent);
+}
+
+[data-theme="dark"] .admin-portal-container,
+[data-theme="dark"] .modal-container {
+  background-color: #151D2E;
 }
