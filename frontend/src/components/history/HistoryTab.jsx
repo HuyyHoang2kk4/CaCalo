@@ -20,9 +20,14 @@ import {
   PlusCircle,
   Filter,
   AlertCircle,
-  CheckCircle2
+  CheckCircle2,
+  Edit3,
+  X,
+  Plus,
+  Save,
+  Check
 } from 'lucide-react';
-import { getMealHistory, deleteMealLog, getMealStatistics } from '../../services/api';
+import { getMealHistory, deleteMealLog, updateMealLog, getMealStatistics } from '../../services/api';
 
 const MEAL_TYPE_CONFIG = {
   breakfast: { label: 'Bữa Sáng', icon: '🌅', color: '#F59E0B', bg: 'rgba(245, 158, 11, 0.12)' },
@@ -39,6 +44,15 @@ export default function HistoryTab({ currentUser, userProfile, onSwitchToVision 
   const [isDeletingId, setIsDeletingId] = useState(null);
   const [notification, setNotification] = useState(null);
   const [selectedFilterMeal, setSelectedFilterMeal] = useState('all');
+
+  // Chỉnh sửa bữa ăn (Edit Modal)
+  const [editingLog, setEditingLog] = useState(null);
+  const [editForm, setEditForm] = useState({
+    meal_type: 'lunch',
+    log_date: '',
+    items: [],
+  });
+  const [isUpdating, setIsUpdating] = useState(false);
 
   // Tải dữ liệu lịch sử và thống kê của riêng người dùng
   const fetchData = async () => {
@@ -85,6 +99,164 @@ export default function HistoryTab({ currentUser, userProfile, onSwitchToVision 
       setIsDeletingId(null);
     }
   };
+
+  // Mở modal chỉnh sửa bữa ăn
+  const handleOpenEditModal = (log) => {
+    setEditingLog(log);
+    setEditForm({
+      meal_type: log.meal_type || 'lunch',
+      log_date: log.log_date || new Date().toISOString().split('T')[0],
+      items: (log.items || []).map((it, idx) => {
+        const gram = Math.max(1, Number(it.actual_gram) || 100);
+        const cal = Number(it.calories) || 0;
+        const pro = Number(it.protein) || 0;
+        const carb = Number(it.carb) || 0;
+        const fat = Number(it.fat) || 0;
+        return {
+          _key: it.id || `item_${idx}_${Date.now()}`,
+          id: it.id,
+          food_id: it.food_id || null,
+          food_name: it.food_name || '',
+          actual_gram: gram,
+          calories: cal,
+          protein: pro,
+          carb: carb,
+          fat: fat,
+          _cal_per_g: cal / gram,
+          _pro_per_g: pro / gram,
+          _carb_per_g: carb / gram,
+          _fat_per_g: fat / gram,
+        };
+      }),
+    });
+  };
+
+  const handleUpdateItemField = (key, field, value) => {
+    setEditForm((prev) => ({
+      ...prev,
+      items: prev.items.map((it) => {
+        if (it._key !== key) return it;
+
+        if (field === 'actual_gram') {
+          const newG = Number(value);
+          const validG = Math.max(0, newG || 0);
+          const calPerG = (it._cal_per_g !== undefined && !isNaN(it._cal_per_g))
+            ? it._cal_per_g
+            : (it.actual_gram > 0 ? it.calories / it.actual_gram : 0);
+          const proPerG = (it._pro_per_g !== undefined && !isNaN(it._pro_per_g))
+            ? it._pro_per_g
+            : (it.actual_gram > 0 ? it.protein / it.actual_gram : 0);
+          const carbPerG = (it._carb_per_g !== undefined && !isNaN(it._carb_per_g))
+            ? it._carb_per_g
+            : (it.actual_gram > 0 ? it.carb / it.actual_gram : 0);
+          const fatPerG = (it._fat_per_g !== undefined && !isNaN(it._fat_per_g))
+            ? it._fat_per_g
+            : (it.actual_gram > 0 ? it.fat / it.actual_gram : 0);
+
+          return {
+            ...it,
+            actual_gram: value,
+            calories: Math.round(calPerG * validG),
+            protein: Number((proPerG * validG).toFixed(1)),
+            carb: Number((carbPerG * validG).toFixed(1)),
+            fat: Number((fatPerG * validG).toFixed(1)),
+            _cal_per_g: calPerG,
+            _pro_per_g: proPerG,
+            _carb_per_g: carbPerG,
+            _fat_per_g: fatPerG,
+          };
+        }
+
+        const updated = { ...it, [field]: value };
+        const curG = Math.max(1, Number(updated.actual_gram) || 100);
+        if (field === 'calories') updated._cal_per_g = Number(value || 0) / curG;
+        if (field === 'protein') updated._pro_per_g = Number(value || 0) / curG;
+        if (field === 'carb') updated._carb_per_g = Number(value || 0) / curG;
+        if (field === 'fat') updated._fat_per_g = Number(value || 0) / curG;
+        return updated;
+      }),
+    }));
+  };
+
+  const handleRemoveItemFromMeal = (key) => {
+    if (editForm.items.length <= 1) {
+      alert('Bữa ăn cần có ít nhất 1 món. Nếu muốn xóa hẳn bữa ăn này, vui lòng dùng nút Xóa ngoài danh sách.');
+      return;
+    }
+    setEditForm((prev) => ({
+      ...prev,
+      items: prev.items.filter((it) => it._key !== key),
+    }));
+  };
+
+  const handleSaveEditMeal = async () => {
+    if (!editingLog) return;
+    if (editForm.items.length === 0) {
+      showNotification('error', 'Bữa ăn phải có ít nhất 1 món!');
+      return;
+    }
+    for (const it of editForm.items) {
+      if (!it.food_name.trim()) {
+        showNotification('error', 'Vui lòng nhập tên cho tất cả các món ăn!');
+        return;
+      }
+    }
+
+    setIsUpdating(true);
+    try {
+      const payload = {
+        meal_type: editForm.meal_type,
+        log_date: editForm.log_date,
+        items: editForm.items.map((it) => ({
+          food_id: it.food_id || null,
+          food_name: it.food_name.trim(),
+          portion_size: `${Math.max(5, Number(it.actual_gram) || 100)}g`,
+          portion_multiplier: 1.0,
+          actual_gram: Math.max(5, Number(it.actual_gram) || 100),
+          calories: Math.max(0, Number(it.calories) || 0),
+          protein: Math.max(0, Number(it.protein) || 0),
+          carb: Math.max(0, Number(it.carb) || 0),
+          fat: Math.max(0, Number(it.fat) || 0),
+          toppings_applied: [],
+        })),
+      };
+
+      const res = await updateMealLog(editingLog.id, payload);
+
+      if (res?.meal_log) {
+        setLogs((prev) => prev.map((l) => (l.id === editingLog.id ? res.meal_log : l)));
+      } else {
+        await fetchData();
+      }
+
+      const newStats = await getMealStatistics();
+      if (newStats) setStats(newStats);
+
+      showNotification('success', 'Đã cập nhật bữa ăn thành công!');
+      setEditingLog(null);
+    } catch (err) {
+      console.error('Lỗi cập nhật bữa ăn:', err);
+      const detail = err.response?.data?.detail || err.message;
+      showNotification('error', detail ? `Cập nhật thất bại: ${detail}` : 'Không thể cập nhật bữa ăn!');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  // Tính tổng calo và macro tức thì trong Edit Modal
+  const editModalTotals = useMemo(() => {
+    if (!editingLog) return { calo: 0, protein: 0, carb: 0, fat: 0 };
+    const c = editForm.items.reduce((s, i) => s + (Number(i.calories) || 0), 0);
+    const p = editForm.items.reduce((s, i) => s + (Number(i.protein) || 0), 0);
+    const cb = editForm.items.reduce((s, i) => s + (Number(i.carb) || 0), 0);
+    const f = editForm.items.reduce((s, i) => s + (Number(i.fat) || 0), 0);
+    return {
+      calo: Math.round(c),
+      protein: Number(p.toFixed(1)),
+      carb: Number(cb.toFixed(1)),
+      fat: Number(f.toFixed(1)),
+    };
+  }, [editForm.items, editingLog]);
 
   // Định dạng ngày giờ thân thiện
   const formatDateTime = (createdIso, dateStr) => {
@@ -365,28 +537,54 @@ export default function HistoryTab({ currentUser, userProfile, onSwitchToVision 
                                 </span>
                               </div>
 
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <span className="tabular-nums" style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--color-accent)' }}>
                                   {Math.round(log.total_calories || 0)} <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>kcal</span>
                                 </span>
 
-                                <button
-                                  onClick={() => handleDeleteLog(log.id, mealCfg.label)}
-                                  disabled={isDeletingId === log.id}
-                                  title="Xóa bữa ăn này"
-                                  style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    color: '#EF4444',
-                                    padding: '4px 6px',
-                                    borderRadius: '4px',
-                                    opacity: isDeletingId === log.id ? 0.4 : 0.8,
-                                    transition: 'opacity 0.15s ease',
-                                  }}
-                                >
-                                  <Trash2 size={16} />
-                                </button>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <button
+                                    onClick={() => handleOpenEditModal(log)}
+                                    title="Chỉnh sửa bữa ăn này"
+                                    style={{
+                                      background: 'rgba(16, 185, 129, 0.1)',
+                                      border: 'none',
+                                      cursor: 'pointer',
+                                      color: 'var(--color-accent)',
+                                      padding: '5px 8px',
+                                      borderRadius: '5px',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 600,
+                                      transition: 'all 0.15s ease',
+                                    }}
+                                  >
+                                    <Edit3 size={13} /> Sửa
+                                  </button>
+
+                                  <button
+                                    onClick={() => handleDeleteLog(log.id, mealCfg.label)}
+                                    disabled={isDeletingId === log.id}
+                                    title="Xóa bữa ăn này"
+                                    style={{
+                                      background: 'rgba(239, 68, 68, 0.08)',
+                                      border: 'none',
+                                      cursor: 'pointer',
+                                      color: '#EF4444',
+                                      padding: '5px 7px',
+                                      borderRadius: '5px',
+                                      opacity: isDeletingId === log.id ? 0.4 : 0.85,
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      transition: 'opacity 0.15s ease',
+                                    }}
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </div>
                               </div>
                             </div>
 
@@ -666,6 +864,346 @@ export default function HistoryTab({ currentUser, userProfile, onSwitchToVision 
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* MODAL CHỈNH SỬA BỮA ĂN (EDIT MEAL MODAL) */}
+      {/* ============================================================ */}
+      {editingLog && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+          }}
+          onClick={() => setEditingLog(null)}
+        >
+          <div
+            className="card"
+            style={{
+              width: '100%',
+              maxWidth: '620px',
+              maxHeight: '92vh',
+              display: 'flex',
+              flexDirection: 'column',
+              backgroundColor: 'var(--bg-card)',
+              borderRadius: 'var(--radius-card)',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3)',
+              padding: '24px',
+              border: '1px solid var(--border-color)',
+              marginBottom: 0,
+              overflow: 'hidden',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)' }}>
+              <div>
+                <h3 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
+                  <Edit3 size={18} color="var(--color-accent)" />
+                  Chỉnh sửa Bữa Ăn #{editingLog.id}
+                </h3>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Cập nhật loại bữa, ngày và danh sách các món ăn đã nạp
+                </span>
+              </div>
+              <button
+                onClick={() => setEditingLog(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '4px' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Scrollable Body */}
+            <div style={{ flex: 1, overflowY: 'auto', paddingRight: '4px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              
+              {/* 1. Chọn loại bữa ăn & Ngày */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                    Loại bữa ăn:
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
+                    {[
+                      { key: 'breakfast', label: 'Sáng', icon: '🌅' },
+                      { key: 'lunch', label: 'Trưa', icon: '☀️' },
+                      { key: 'dinner', label: 'Tối', icon: '🌙' },
+                      { key: 'snack', label: 'Phụ', icon: '🍎' },
+                    ].map((m) => (
+                      <button
+                        key={m.key}
+                        type="button"
+                        onClick={() => setEditForm((p) => ({ ...p, meal_type: m.key }))}
+                        style={{
+                          padding: '6px 2px',
+                          borderRadius: '6px',
+                          fontSize: '0.76rem',
+                          fontWeight: 600,
+                          border: editForm.meal_type === m.key ? '2px solid var(--color-accent)' : '1px solid var(--border-color)',
+                          backgroundColor: editForm.meal_type === m.key ? 'rgba(16, 185, 129, 0.15)' : 'var(--bg-surface)',
+                          color: editForm.meal_type === m.key ? 'var(--color-accent)' : 'var(--text-secondary)',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '2px',
+                        }}
+                      >
+                        <span>{m.icon}</span>
+                        <span>{m.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                    Ngày ghi nhận:
+                  </label>
+                  <input
+                    type="date"
+                    value={editForm.log_date}
+                    onChange={(e) => setEditForm((p) => ({ ...p, log_date: e.target.value }))}
+                    style={{
+                      width: '100%',
+                      height: '38px',
+                      padding: '0 10px',
+                      borderRadius: 'var(--radius-inner)',
+                      border: '1px solid var(--border-strong)',
+                      fontSize: '0.88rem',
+                      fontWeight: 600,
+                      backgroundColor: 'var(--bg-surface)',
+                      color: 'var(--text-primary)',
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* 2. Danh sách các món ăn trong bữa */}
+              <div>
+                <div style={{ marginBottom: '8px' }}>
+                  <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    Danh sách món ăn ({editForm.items.length} món):
+                  </label>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {editForm.items.map((it) => (
+                    <div
+                      key={it._key}
+                      style={{
+                        padding: '12px',
+                        borderRadius: 'var(--radius-inner)',
+                        backgroundColor: 'var(--bg-surface)',
+                        border: '1px solid var(--border-color)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px',
+                      }}
+                    >
+                      {/* Dòng 1: Tên món + Gram + Calo + Xóa */}
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <div style={{ flex: '1 1 180px' }}>
+                          <input
+                            type="text"
+                            value={it.food_name}
+                            onChange={(e) => handleUpdateItemField(it._key, 'food_name', e.target.value)}
+                            placeholder="Tên món ăn..."
+                            style={{
+                              width: '100%',
+                              height: '34px',
+                              padding: '0 8px',
+                              borderRadius: '4px',
+                              border: '1px solid var(--border-strong)',
+                              fontSize: '0.85rem',
+                              fontWeight: 600,
+                              backgroundColor: 'var(--bg-card)',
+                              color: 'var(--text-primary)',
+                            }}
+                          />
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <input
+                            type="number"
+                            min="5"
+                            max="3000"
+                            value={it.actual_gram}
+                            onChange={(e) => handleUpdateItemField(it._key, 'actual_gram', e.target.value)}
+                            style={{
+                              width: '75px',
+                              height: '34px',
+                              padding: '0 6px',
+                              borderRadius: '4px',
+                              border: '1px solid var(--border-strong)',
+                              fontSize: '0.85rem',
+                              fontWeight: 600,
+                              textAlign: 'center',
+                              backgroundColor: 'var(--bg-card)',
+                              color: 'var(--text-primary)',
+                            }}
+                          />
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>g</span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <input
+                            type="number"
+                            min="0"
+                            max="5000"
+                            value={it.calories}
+                            onChange={(e) => handleUpdateItemField(it._key, 'calories', e.target.value)}
+                            style={{
+                              width: '85px',
+                              height: '34px',
+                              padding: '0 6px',
+                              borderRadius: '4px',
+                              border: '1px solid var(--color-accent)',
+                              fontSize: '0.9rem',
+                              fontWeight: 700,
+                              textAlign: 'center',
+                              backgroundColor: 'var(--bg-card)',
+                              color: 'var(--color-accent)',
+                            }}
+                          />
+                          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-accent)' }}>kcal</span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveItemFromMeal(it._key)}
+                          title="Xóa món này khỏi bữa"
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: '#EF4444',
+                            padding: '6px',
+                            borderRadius: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+
+                      {/* Dòng 2: Đạm, Carb, Béo */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 8px', borderRadius: '4px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+                          <span style={{ fontSize: '0.72rem', color: '#10B981', fontWeight: 600 }}>Đạm:</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            value={it.protein}
+                            onChange={(e) => handleUpdateItemField(it._key, 'protein', e.target.value)}
+                            style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.8rem', fontWeight: 600, outline: 'none', color: 'var(--text-primary)' }}
+                          />
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>g</span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 8px', borderRadius: '4px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+                          <span style={{ fontSize: '0.72rem', color: '#3B82F6', fontWeight: 600 }}>Carb:</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            value={it.carb}
+                            onChange={(e) => handleUpdateItemField(it._key, 'carb', e.target.value)}
+                            style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.8rem', fontWeight: 600, outline: 'none', color: 'var(--text-primary)' }}
+                          />
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>g</span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 8px', borderRadius: '4px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+                          <span style={{ fontSize: '0.72rem', color: '#F59E0B', fontWeight: 600 }}>Béo:</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            value={it.fat}
+                            onChange={(e) => handleUpdateItemField(it._key, 'fat', e.target.value)}
+                            style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.8rem', fontWeight: 600, outline: 'none', color: 'var(--text-primary)' }}
+                          />
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>g</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 3. Tổng cộng Dinh dưỡng tức thì */}
+              <div
+                style={{
+                  padding: '12px 16px',
+                  borderRadius: 'var(--radius-inner)',
+                  backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                  border: '1px solid rgba(16, 185, 129, 0.25)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '10px',
+                }}
+              >
+                <div>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block' }}>Tổng năng lượng bữa ăn:</span>
+                  <span className="tabular-nums" style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--color-accent)' }}>
+                    {editModalTotals.calo} <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>kcal</span>
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', gap: '14px', fontSize: '0.82rem' }}>
+                  <span>Đạm: <strong style={{ color: '#10B981' }}>{editModalTotals.protein}g</strong></span>
+                  <span>Carb: <strong style={{ color: '#3B82F6' }}>{editModalTotals.carb}g</strong></span>
+                  <span>Béo: <strong style={{ color: '#F59E0B' }}>{editModalTotals.fat}g</strong></span>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px', paddingTop: '12px', borderTop: '1px solid var(--border-color)' }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                style={{ height: '38px', fontSize: '0.85rem' }}
+                onClick={() => setEditingLog(null)}
+                disabled={isUpdating}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ height: '38px', fontSize: '0.85rem' }}
+                onClick={handleSaveEditMeal}
+                disabled={isUpdating}
+              >
+                {isUpdating ? (
+                  <>
+                    <RefreshCw size={14} className="animate-spin" /> Đang lưu...
+                  </>
+                ) : (
+                  <>
+                    <Save size={15} /> Lưu thay đổi
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -105,6 +105,18 @@ export const deleteMealLog = async (logId) => {
 };
 
 /**
+ * MỤC ĐÍCH: Cập nhật bản ghi bữa ăn trong nhật ký cá nhân (loại bữa, danh sách món, gram, calo, macro).
+ */
+export const updateMealLog = async (logId, mealData) => {
+  try {
+    return await apiClient.put(`/meal-logs/${logId}`, mealData);
+  } catch (error) {
+    console.error('Lỗi cập nhật bữa ăn:', error);
+    throw error;
+  }
+};
+
+/**
  * MỤC ĐÍCH: Lấy thống kê dinh dưỡng cá nhân hóa tổng hợp của tài khoản.
  */
 export const getMealStatistics = async () => {

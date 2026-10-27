@@ -79,6 +79,11 @@ class CreateMealLogInput(BaseModel):
     log_date: Optional[date] = None
     items: List[MealLogItemInput]
 
+class UpdateMealLogInput(BaseModel):
+    meal_type: Optional[str] = None  # 'breakfast', 'lunch', 'dinner', 'snack'
+    log_date: Optional[date] = None
+    items: Optional[List[MealLogItemInput]] = None
+
 class AIFeedbackInput(BaseModel):
     original_image_url: Optional[str] = None
     model_version: str = "gemini-1.5-flash-vision"
@@ -621,6 +626,101 @@ def delete_meal_log(
     db.delete(log)
     db.commit()
     return {"success": True, "message": "Đã xóa bản ghi bữa ăn thành công"}
+
+
+@app.put("/api/meal-logs/{meal_log_id}", tags=["Nhật ký bữa ăn"])
+def update_meal_log(
+    meal_log_id: int,
+    data: UpdateMealLogInput,
+    user_opt: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """Cập nhật bản ghi bữa ăn trong nhật ký (loại bữa ăn, ngày, danh sách món và dinh dưỡng)."""
+    user = user_opt or db.query(User).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Vui lòng đăng nhập để thực hiện thao tác")
+
+    log = db.query(MealLog).filter(MealLog.id == meal_log_id).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bản ghi bữa ăn")
+
+    if user.role != "admin" and log.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Bạn không có quyền sửa bữa ăn của tài khoản khác")
+
+    if data.meal_type:
+        log.meal_type = data.meal_type
+    if data.log_date:
+        log.log_date = data.log_date
+
+    if data.items is not None:
+        db.query(MealLogItem).filter(MealLogItem.meal_log_id == log.id).delete()
+
+        total_cal = sum(item.calories for item in data.items)
+        total_pro = sum(item.protein for item in data.items)
+        total_carb = sum(item.carb for item in data.items)
+        total_fat = sum(item.fat for item in data.items)
+
+        log.total_calories = round(total_cal, 1)
+        log.total_protein = round(total_pro, 1)
+        log.total_carb = round(total_carb, 1)
+        log.total_fat = round(total_fat, 1)
+
+        for item in data.items:
+            log_item = MealLogItem(
+                meal_log_id=log.id,
+                food_id=item.food_id,
+                serving_id=item.serving_id,
+                food_name=(item.food_name or "Món ăn")[:145],
+                portion_size=(item.portion_size or f"{item.actual_gram}g")[:250],
+                portion_multiplier=item.portion_multiplier or 1.0,
+                actual_gram=float(item.actual_gram or 0),
+                calories=round(float(item.calories or 0), 1),
+                protein=round(float(item.protein or 0), 1),
+                carb=round(float(item.carb or 0), 1),
+                fat=round(float(item.fat or 0), 1),
+                toppings_applied=item.toppings_applied or [],
+                image_proof_url=item.image_proof_url
+            )
+            db.add(log_item)
+
+    db.commit()
+    db.refresh(log)
+
+    updated_items = [
+        {
+            "id": it.id,
+            "food_id": it.food_id,
+            "food_name": it.food_name,
+            "portion_size": it.portion_size,
+            "actual_gram": float(it.actual_gram or 0),
+            "calories": float(it.calories or 0),
+            "protein": float(it.protein or 0),
+            "carb": float(it.carb or 0),
+            "fat": float(it.fat or 0),
+            "toppings_applied": it.toppings_applied or [],
+            "image_proof_url": it.image_proof_url
+        }
+        for it in log.items
+    ]
+
+    return {
+        "success": True,
+        "message": "Đã cập nhật bữa ăn thành công!",
+        "meal_log_id": log.id,
+        "total_calories": float(log.total_calories),
+        "meal_log": {
+            "id": log.id,
+            "user_id": log.user_id,
+            "log_date": str(log.log_date),
+            "created_at": log.created_at.isoformat() if log.created_at else None,
+            "meal_type": log.meal_type or "lunch",
+            "total_calories": float(log.total_calories or 0),
+            "total_protein": float(log.total_protein or 0),
+            "total_carb": float(log.total_carb or 0),
+            "total_fat": float(log.total_fat or 0),
+            "items": updated_items
+        }
+    }
 
 
 @app.get("/api/meal-logs/statistics", tags=["Nhật ký bữa ăn"])

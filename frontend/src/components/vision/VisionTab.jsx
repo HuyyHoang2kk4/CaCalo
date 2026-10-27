@@ -46,6 +46,17 @@ export default function VisionTab({ foods = [], currentUser, onOpenAuthModal }) 
   const [isCorrecting, setIsCorrecting] = useState(false);
   const [correctedText, setCorrectedText] = useState('');
 
+  // 5. Chỉnh sửa chi tiết món ăn (Tên, Gram, Calo, Macros)
+  const [itemToEdit, setItemToEdit] = useState(null);
+  const [itemEditForm, setItemEditForm] = useState({
+    ten: '',
+    gram: 100,
+    calo: 0,
+    protein: 0,
+    carb: 0,
+    fat: 0,
+  });
+
   // Tìm kiếm món ăn trong CSDL để thêm thủ công
   const searchResults = useMemo(() => {
     if (!searchQuery.trim() || !foods) return [];
@@ -58,32 +69,70 @@ export default function VisionTab({ foods = [], currentUser, onOpenAuthModal }) 
   }, [searchQuery, foods]);
 
   // ============================================================
+  // TÍNH TOÁN CALO & MACRO CHO TỪNG MÓN
+  // ============================================================
+  const getItemCalories = (item) => {
+    const gram = Math.max(0, Number(item.uoc_luong_gram) || 0);
+
+    // Nếu đã lưu tỷ lệ calo/g
+    if (item._cal_per_g !== undefined && !isNaN(item._cal_per_g)) {
+      return Math.round(item._cal_per_g * gram);
+    }
+
+    const origGram = Math.max(1, Number(item._original_gram) || Number(item.uoc_luong_gram) || 100);
+    const m = item.matched_food;
+
+    if (m && m.matched) {
+      const cal100 = (m.calo_per_100g !== undefined && m.calo_per_100g !== null)
+        ? Number(m.calo_per_100g)
+        : (Number(m.calo_db || 0) * 100 / origGram);
+      return Math.round((cal100 * gram) / 100) || 0;
+    }
+    const ratio = origGram > 0 ? gram / origGram : 1;
+    return Math.round((Number(item.calo_ai) || 0) * ratio) || 0;
+  };
+
+  const getItemMacros = (item) => {
+    const gram = Math.max(0, Number(item.uoc_luong_gram) || 0);
+
+    // Nếu đã lưu tỷ lệ macro/g
+    if (item._pro_per_g !== undefined && !isNaN(item._pro_per_g)) {
+      return {
+        protein: Number((item._pro_per_g * gram).toFixed(1)),
+        carb: Number((item._carb_per_g * gram).toFixed(1)),
+        fat: Number((item._fat_per_g * gram).toFixed(1)),
+      };
+    }
+
+    const origGram = Math.max(1, Number(item._original_gram) || Number(item.uoc_luong_gram) || 100);
+    const m = item.matched_food;
+
+    if (m && m.matched) {
+      return {
+        protein: Number(((Number(m?.protein_db || 0) * gram) / origGram).toFixed(1)),
+        carb: Number(((Number(m?.carb_db || 0) * gram) / origGram).toFixed(1)),
+        fat: Number(((Number(m?.fat_db || 0) * gram) / origGram).toFixed(1)),
+      };
+    }
+    const ratio = origGram > 0 ? gram / origGram : 1;
+    return {
+      protein: Number(((Number(item.protein_ai) || 0) * ratio).toFixed(1)),
+      carb: Number(((Number(item.carb_ai) || 0) * ratio).toFixed(1)),
+      fat: Number(((Number(item.fat_ai) || 0) * ratio).toFixed(1)),
+    };
+  };
+
+  // ============================================================
   // TÍNH TOÁN DINH DƯỠNG TỔNG CỘNG
   // ============================================================
   const totalNutrition = useMemo(() => {
     let calo = 0, protein = 0, carb = 0, fat = 0;
     for (const item of editableItems) {
-      const m = item.matched_food;
-      const gram = Number(item.uoc_luong_gram) || 100;
-      const origGram = Number(item._original_gram) || gram || 100;
-
-      if (m && m.matched) {
-        // Tính lại từ DB theo gram hiện tại
-        const cal100 = (m.calo_per_100g !== undefined && m.calo_per_100g !== null)
-          ? Number(m.calo_per_100g)
-          : (Number(m.calo_db || 0) * 100 / origGram);
-        calo += (cal100 * gram) / 100;
-        protein += (Number(m.protein_db || 0) / origGram) * gram;
-        carb += (Number(m.carb_db || 0) / origGram) * gram;
-        fat += (Number(m.fat_db || 0) / origGram) * gram;
-      } else {
-        // Dùng số liệu Gemini ước lượng (tỷ lệ theo gram)
-        const ratio = gram / origGram;
-        calo += (Number(item.calo_ai) || 0) * ratio;
-        protein += (Number(item.protein_ai) || 0) * ratio;
-        carb += (Number(item.carb_ai) || 0) * ratio;
-        fat += (Number(item.fat_ai) || 0) * ratio;
-      }
+      calo += getItemCalories(item);
+      const macros = getItemMacros(item);
+      protein += macros.protein;
+      carb += macros.carb;
+      fat += macros.fat;
     }
     return {
       calo: Math.round(calo) || 0,
@@ -171,12 +220,57 @@ export default function VisionTab({ foods = [], currentUser, onOpenAuthModal }) 
   // SỬA / XÓA / THÊM MÓN ĂN
   // ============================================================
   const updateItemGram = (itemId, newGram) => {
+    const g = Number(newGram);
+    const validG = Math.max(0, g || 0);
+
     setEditableItems((prev) =>
-      prev.map((item) =>
-        item._id === itemId
-          ? { ...item, uoc_luong_gram: Math.max(10, Number(newGram) || 0) }
-          : item
-      )
+      prev.map((item) => {
+        if (item._id !== itemId) return item;
+
+        const curGram = Math.max(1, Number(item.uoc_luong_gram) || 100);
+
+        let calPerG = item._cal_per_g;
+        let proPerG = item._pro_per_g;
+        let carbPerG = item._carb_per_g;
+        let fatPerG = item._fat_per_g;
+
+        if (calPerG === undefined) {
+          const cal = getItemCalories(item);
+          const macros = getItemMacros(item);
+          calPerG = cal / curGram;
+          proPerG = macros.protein / curGram;
+          carbPerG = macros.carb / curGram;
+          fatPerG = macros.fat / curGram;
+        }
+
+        const newCal = Math.round(calPerG * validG);
+        const newPro = Number((proPerG * validG).toFixed(1));
+        const newCarb = Number((carbPerG * validG).toFixed(1));
+        const newFat = Number((fatPerG * validG).toFixed(1));
+
+        return {
+          ...item,
+          uoc_luong_gram: newGram,
+          _original_gram: validG || 1,
+          calo_ai: newCal,
+          protein_ai: newPro,
+          carb_ai: newCarb,
+          fat_ai: newFat,
+          _cal_per_g: calPerG,
+          _pro_per_g: proPerG,
+          _carb_per_g: carbPerG,
+          _fat_per_g: fatPerG,
+          matched_food: item.matched_food
+            ? {
+                ...item.matched_food,
+                calo_db: newCal,
+                protein_db: newPro,
+                carb_db: newCarb,
+                fat_db: newFat,
+              }
+            : null,
+        };
+      })
     );
   };
 
@@ -192,6 +286,122 @@ export default function VisionTab({ foods = [], currentUser, onOpenAuthModal }) 
 
   const removeItem = (itemId) => {
     setEditableItems((prev) => prev.filter((item) => item._id !== itemId));
+    if (itemToEdit && itemToEdit._id === itemId) {
+      setItemToEdit(null);
+    }
+  };
+
+  const handleOpenEditItem = (item) => {
+    const gram = Math.max(1, Number(item.uoc_luong_gram) || 100);
+    const cal = getItemCalories(item);
+    const macros = getItemMacros(item);
+    setItemToEdit(item);
+    setItemEditForm({
+      ten: item.ten || '',
+      gram: gram,
+      calo: cal,
+      protein: macros.protein,
+      carb: macros.carb,
+      fat: macros.fat,
+      _cal_per_g: cal / gram,
+      _pro_per_g: macros.protein / gram,
+      _carb_per_g: macros.carb / gram,
+      _fat_per_g: macros.fat / gram,
+    });
+  };
+
+  const handleModalGramChange = (newVal) => {
+    const newG = Number(newVal);
+    const validG = Math.max(0, newG || 0);
+    const calPerG = (itemEditForm._cal_per_g !== undefined && !isNaN(itemEditForm._cal_per_g))
+      ? itemEditForm._cal_per_g
+      : (itemEditForm.gram > 0 ? itemEditForm.calo / itemEditForm.gram : 0);
+    const proPerG = (itemEditForm._pro_per_g !== undefined && !isNaN(itemEditForm._pro_per_g))
+      ? itemEditForm._pro_per_g
+      : (itemEditForm.gram > 0 ? itemEditForm.protein / itemEditForm.gram : 0);
+    const carbPerG = (itemEditForm._carb_per_g !== undefined && !isNaN(itemEditForm._carb_per_g))
+      ? itemEditForm._carb_per_g
+      : (itemEditForm.gram > 0 ? itemEditForm.carb / itemEditForm.gram : 0);
+    const fatPerG = (itemEditForm._fat_per_g !== undefined && !isNaN(itemEditForm._fat_per_g))
+      ? itemEditForm._fat_per_g
+      : (itemEditForm.gram > 0 ? itemEditForm.fat / itemEditForm.gram : 0);
+
+    setItemEditForm((prev) => ({
+      ...prev,
+      gram: newVal,
+      calo: Math.round(calPerG * validG),
+      protein: Number((proPerG * validG).toFixed(1)),
+      carb: Number((carbPerG * validG).toFixed(1)),
+      fat: Number((fatPerG * validG).toFixed(1)),
+      _cal_per_g: calPerG,
+      _pro_per_g: proPerG,
+      _carb_per_g: carbPerG,
+      _fat_per_g: fatPerG,
+    }));
+  };
+
+  const handleModalCaloChange = (newVal) => {
+    const val = Number(newVal) || 0;
+    const curG = Math.max(1, Number(itemEditForm.gram) || 100);
+    setItemEditForm((prev) => ({
+      ...prev,
+      calo: newVal,
+      _cal_per_g: val / curG,
+    }));
+  };
+
+  const handleModalMacroChange = (field, newVal) => {
+    const val = Number(newVal) || 0;
+    const curG = Math.max(1, Number(itemEditForm.gram) || 100);
+    const key = `_${field === 'protein' ? 'pro' : field}_per_g`;
+    setItemEditForm((prev) => ({
+      ...prev,
+      [field]: newVal,
+      [key]: val / curG,
+    }));
+  };
+
+  const handleSaveEditItem = () => {
+    if (!itemToEdit) return;
+    const newName = itemEditForm.ten.trim() || itemToEdit.ten;
+    const newGram = Math.max(1, Number(itemEditForm.gram) || 100);
+    const newCalo = Math.max(0, Number(itemEditForm.calo) || 0);
+    const newPro = Math.max(0, Number(itemEditForm.protein) || 0);
+    const newCarb = Math.max(0, Number(itemEditForm.carb) || 0);
+    const newFat = Math.max(0, Number(itemEditForm.fat) || 0);
+
+    setEditableItems((prev) =>
+      prev.map((it) => {
+        if (it._id !== itemToEdit._id) return it;
+        return {
+          ...it,
+          ten: newName,
+          uoc_luong_gram: newGram,
+          _original_gram: newGram,
+          calo_ai: newCalo,
+          protein_ai: newPro,
+          carb_ai: newCarb,
+          fat_ai: newFat,
+          _cal_per_g: newCalo / newGram,
+          _pro_per_g: newPro / newGram,
+          _carb_per_g: newCarb / newGram,
+          _fat_per_g: newFat / newGram,
+          _is_custom: true,
+          matched_food: it.matched_food
+            ? {
+                ...it.matched_food,
+                food_name: newName,
+                calo_db: newCalo,
+                protein_db: newPro,
+                carb_db: newCarb,
+                fat_db: newFat,
+                calo_per_100g: (newCalo / newGram) * 100,
+              }
+            : null,
+        };
+      })
+    );
+    setItemToEdit(null);
   };
 
   const addFoodFromDB = (food) => {
@@ -246,24 +456,8 @@ export default function VisionTab({ foods = [], currentUser, onOpenAuthModal }) 
     const items = editableItems.map((item) => {
       const m = item.matched_food;
       const gram = Number(item.uoc_luong_gram) || 100;
-      const origGram = Number(item._original_gram) || gram || 100;
-      let cal, pro, carb, fat;
-
-      if (m && m.matched) {
-        const cal100 = (m.calo_per_100g !== undefined && m.calo_per_100g !== null)
-          ? Number(m.calo_per_100g)
-          : (Number(m.calo_db || 0) * 100 / origGram);
-        cal = Math.round((cal100 * gram) / 100) || 0;
-        pro = Number(((Number(m.protein_db || 0) / origGram) * gram).toFixed(1)) || 0;
-        carb = Number(((Number(m.carb_db || 0) / origGram) * gram).toFixed(1)) || 0;
-        fat = Number(((Number(m.fat_db || 0) / origGram) * gram).toFixed(1)) || 0;
-      } else {
-        const ratio = gram / origGram;
-        cal = Math.round((Number(item.calo_ai) || 0) * ratio) || 0;
-        pro = Number(((Number(item.protein_ai) || 0) * ratio).toFixed(1)) || 0;
-        carb = Number(((Number(item.carb_ai) || 0) * ratio).toFixed(1)) || 0;
-        fat = Number(((Number(item.fat_ai) || 0) * ratio).toFixed(1)) || 0;
-      }
+      const cal = getItemCalories(item);
+      const macros = getItemMacros(item);
 
       return {
         food_id: m?.food_id || null,
@@ -273,9 +467,9 @@ export default function VisionTab({ foods = [], currentUser, onOpenAuthModal }) 
         portion_multiplier: 1.0,
         actual_gram: gram,
         calories: cal,
-        protein: pro,
-        carb: carb,
-        fat: fat,
+        protein: macros.protein,
+        carb: macros.carb,
+        fat: macros.fat,
         toppings_applied: [],
         image_proof_url: null,
       };
@@ -334,24 +528,7 @@ export default function VisionTab({ foods = [], currentUser, onOpenAuthModal }) 
     setEditableItems([]);
     setSaveStatus(null);
     setIsCorrecting(false);
-  };
-
-  // ============================================================
-  // TÍNH CALO RIÊNG CHO 1 MÓN (để hiển thị trên UI)
-  // ============================================================
-  const getItemCalories = (item) => {
-    const m = item.matched_food;
-    const gram = Number(item.uoc_luong_gram) || 100;
-    const origGram = Number(item._original_gram) || gram || 100;
-
-    if (m && m.matched) {
-      const cal100 = (m.calo_per_100g !== undefined && m.calo_per_100g !== null)
-        ? Number(m.calo_per_100g)
-        : (Number(m.calo_db || 0) * 100 / origGram);
-      return Math.round((cal100 * gram) / 100) || 0;
-    }
-    const ratio = gram / origGram;
-    return Math.round((Number(item.calo_ai) || 0) * ratio) || 0;
+    setItemToEdit(null);
   };
 
   // ============================================================
@@ -632,28 +809,57 @@ export default function VisionTab({ foods = [], currentUser, onOpenAuthModal }) 
                       backgroundColor: 'var(--bg-surface)',
                     }}
                   >
-                    {/* Dòng 1: Tên món + Badge + Nút xóa */}
+                    {/* Dòng 1: Tên món + Badge + Nút Sửa / Xóa */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                           <span style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)' }}>
                             {item.ten}
                           </span>
+                          {item._is_custom && (
+                            <span
+                              style={{
+                                fontSize: '0.68rem',
+                                fontWeight: 600,
+                                padding: '1px 6px',
+                                borderRadius: '4px',
+                                backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                                color: 'var(--color-accent)',
+                              }}
+                            >
+                              ✏️ Đã chỉnh sửa
+                            </span>
+                          )}
                         </div>
                         {item.ghi_chu && (
                           <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{item.ghi_chu}</span>
                         )}
                       </div>
-                      <button
-                        onClick={() => removeItem(item._id)}
-                        title="Xóa món này"
-                        style={{
-                          background: 'none', border: 'none', cursor: 'pointer',
-                          color: '#EF4444', padding: '4px', borderRadius: '4px',
-                        }}
-                      >
-                        <Trash2 size={15} />
-                      </button>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <button
+                          onClick={() => handleOpenEditItem(item)}
+                          title="Chỉnh sửa món này (Tên, Gram, Calo, Macros)"
+                          style={{
+                            background: 'rgba(16, 185, 129, 0.1)', border: 'none', cursor: 'pointer',
+                            color: 'var(--color-accent)', padding: '4px 8px', borderRadius: '5px',
+                            display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', fontWeight: 600
+                          }}
+                        >
+                          <Edit3 size={13} /> Sửa
+                        </button>
+                        <button
+                          onClick={() => removeItem(item._id)}
+                          title="Xóa món này"
+                          style={{
+                            background: 'none', border: 'none', cursor: 'pointer',
+                            color: '#EF4444', padding: '4px', borderRadius: '4px',
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center'
+                          }}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </div>
 
                     {/* Dòng 2: Gram + Calo */}
@@ -685,7 +891,7 @@ export default function VisionTab({ foods = [], currentUser, onOpenAuthModal }) 
                               borderBottom: '1px dashed var(--color-accent)',
                               paddingBottom: '1px',
                             }}
-                            title="Bấm để sửa gram"
+                            title="Bấm để sửa nhanh gram"
                           >
                             {item.uoc_luong_gram}g ✏️
                           </span>
@@ -697,21 +903,16 @@ export default function VisionTab({ foods = [], currentUser, onOpenAuthModal }) 
                     </div>
 
                     {/* Dòng 3: Chi tiết Macro nhỏ */}
-                    <div style={{ display: 'flex', gap: '12px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                      {isMatched ? (
-                        <>
-                          <span>Đạm: <strong>{Number(((Number(m?.protein_db || 0) * (Number(item.uoc_luong_gram) || 100)) / (Number(item._original_gram) || Number(item.uoc_luong_gram) || 100)).toFixed(1))}g</strong></span>
-                          <span>Carb: <strong>{Number(((Number(m?.carb_db || 0) * (Number(item.uoc_luong_gram) || 100)) / (Number(item._original_gram) || Number(item.uoc_luong_gram) || 100)).toFixed(1))}g</strong></span>
-                          <span>Béo: <strong>{Number(((Number(m?.fat_db || 0) * (Number(item.uoc_luong_gram) || 100)) / (Number(item._original_gram) || Number(item.uoc_luong_gram) || 100)).toFixed(1))}g</strong></span>
-                        </>
-                      ) : (
-                        <>
-                          <span>Đạm: <strong>{Number(item.protein_ai || 0)}g</strong></span>
-                          <span>Carb: <strong>{Number(item.carb_ai || 0)}g</strong></span>
-                          <span>Béo: <strong>{Number(item.fat_ai || 0)}g</strong></span>
-                        </>
-                      )}
-                    </div>
+                    {(() => {
+                      const itemMacros = getItemMacros(item);
+                      return (
+                        <div style={{ display: 'flex', gap: '12px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                          <span>Đạm: <strong>{itemMacros.protein}g</strong></span>
+                          <span>Carb: <strong>{itemMacros.carb}g</strong></span>
+                          <span>Béo: <strong>{itemMacros.fat}g</strong></span>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}
@@ -898,6 +1099,176 @@ export default function VisionTab({ foods = [], currentUser, onOpenAuthModal }) 
         onClose={() => setIsCameraOpen(false)}
         onCapture={handleCaptureFromCamera}
       />
+
+      {/* MODAL CHỈNH SỬA CHI TIẾT MÓN ĂN */}
+      {itemToEdit && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+          }}
+          onClick={() => setItemToEdit(null)}
+        >
+          <div
+            className="card"
+            style={{
+              width: '100%',
+              maxWidth: '460px',
+              backgroundColor: 'var(--bg-card)',
+              borderRadius: 'var(--radius-card)',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3)',
+              padding: '22px',
+              border: '1px solid var(--border-color)',
+              marginBottom: 0,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
+                <Edit3 size={18} color="var(--color-accent)" /> Chỉnh sửa món ăn
+              </h3>
+              <button
+                onClick={() => setItemToEdit(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '4px' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Inputs Form */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '5px' }}>
+                  Tên món ăn:
+                </label>
+                <input
+                  type="text"
+                  value={itemEditForm.ten}
+                  onChange={(e) => setItemEditForm((p) => ({ ...p, ten: e.target.value }))}
+                  placeholder="Nhập tên món ăn..."
+                  style={{
+                    width: '100%', height: '38px', padding: '0 10px',
+                    borderRadius: 'var(--radius-inner)', border: '1px solid var(--border-strong)',
+                    fontSize: '0.88rem', fontWeight: 600, backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-primary)',
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '5px' }}>
+                    Khối lượng (g):
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="3000"
+                    value={itemEditForm.gram}
+                    onChange={(e) => handleModalGramChange(e.target.value)}
+                    style={{
+                      width: '100%', height: '38px', padding: '0 10px',
+                      borderRadius: 'var(--radius-inner)', border: '1px solid var(--border-strong)',
+                      fontSize: '0.9rem', fontWeight: 600, backgroundColor: 'var(--bg-surface)',
+                      color: 'var(--text-primary)',
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '5px' }}>
+                    Năng lượng (kcal):
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="5000"
+                    value={itemEditForm.calo}
+                    onChange={(e) => handleModalCaloChange(e.target.value)}
+                    style={{
+                      width: '100%', height: '38px', padding: '0 10px',
+                      borderRadius: 'var(--radius-inner)', border: '1px solid var(--color-accent)',
+                      fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-accent)',
+                      backgroundColor: 'var(--bg-surface)',
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* 3 Macro: Protein, Carb, Fat (Tự động tính theo gram hoặc chỉnh riêng) */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                  Dinh dưỡng đa lượng (Tự động cập nhật theo gram):
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                  <div style={{ padding: '8px', borderRadius: 'var(--radius-inner)', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}>
+                    <span style={{ fontSize: '0.72rem', color: '#10B981', fontWeight: 600, display: 'block' }}>Đạm (P) g</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={itemEditForm.protein}
+                      onChange={(e) => handleModalMacroChange('protein', e.target.value)}
+                      style={{ width: '100%', border: 'none', background: 'transparent', fontWeight: 700, fontSize: '0.88rem', outline: 'none', color: 'var(--text-primary)' }}
+                    />
+                  </div>
+                  <div style={{ padding: '8px', borderRadius: 'var(--radius-inner)', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}>
+                    <span style={{ fontSize: '0.72rem', color: '#3B82F6', fontWeight: 600, display: 'block' }}>Carb (C) g</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={itemEditForm.carb}
+                      onChange={(e) => handleModalMacroChange('carb', e.target.value)}
+                      style={{ width: '100%', border: 'none', background: 'transparent', fontWeight: 700, fontSize: '0.88rem', outline: 'none', color: 'var(--text-primary)' }}
+                    />
+                  </div>
+                  <div style={{ padding: '8px', borderRadius: 'var(--radius-inner)', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}>
+                    <span style={{ fontSize: '0.72rem', color: '#F59E0B', fontWeight: 600, display: 'block' }}>Béo (F) g</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={itemEditForm.fat}
+                      onChange={(e) => handleModalMacroChange('fat', e.target.value)}
+                      style={{ width: '100%', border: 'none', background: 'transparent', fontWeight: 700, fontSize: '0.88rem', outline: 'none', color: 'var(--text-primary)' }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Buttons */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '22px' }}>
+              <button
+                className="btn btn-outline"
+                style={{ height: '38px', fontSize: '0.84rem' }}
+                onClick={() => setItemToEdit(null)}
+              >
+                Hủy
+              </button>
+              <button
+                className="btn btn-primary"
+                style={{ height: '38px', fontSize: '0.84rem' }}
+                onClick={handleSaveEditItem}
+              >
+                <Check size={16} /> Lưu thay đổi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
