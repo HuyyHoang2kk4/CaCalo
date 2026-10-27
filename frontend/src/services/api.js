@@ -246,4 +246,167 @@ export const evaluateMeal = async (mealData) => {
   }
 };
 
+// ==============================================================================
+// PUBLIC INGREDIENTS & RECIPES
+// ==============================================================================
+
+export const getIngredients = async (category = null, search = null) => {
+  try {
+    return await apiClient.get('/ingredients', { params: { category, search } });
+  } catch (error) {
+    console.error('Lỗi lấy danh sách nguyên liệu:', error);
+    return { total: 0, data: [] };
+  }
+};
+
+export const getRecipes = async (search = null) => {
+  try {
+    return await apiClient.get('/recipes', { params: { search } });
+  } catch (error) {
+    console.error('Lỗi lấy danh sách công thức nấu ăn:', error);
+    return { total: 0, data: [] };
+  }
+};
+
+export const getRecipeDetail = async (id) => {
+  try {
+    return await apiClient.get(`/recipes/${id}`);
+  } catch (error) {
+    console.error('Lỗi lấy chi tiết công thức nấu:', error);
+    throw error;
+  }
+};
+
+// ==============================================================================
+// MODULE 5: QUẢN TRỊ ADMIN (CC-5.1, CC-5.2, CC-5.3)
+// ==============================================================================
+
+/**
+ * Lấy số liệu thống kê KPI tổng quan hệ thống cho Admin Dashboard.
+ */
+export const getAdminOverview = async () => {
+  try {
+    return await apiClient.get('/admin/overview');
+  } catch (error) {
+    console.error('Lỗi lấy tổng quan Admin:', error);
+    throw error;
+  }
+};
+
+/**
+ * Quản trị Món ăn (CC-5.1)
+ */
+export const getAdminFoods = async (search = '', category = 'all') => {
+  try {
+    return await apiClient.get('/admin/foods', { params: { search, category } });
+  } catch (error) {
+    console.error('Lỗi lấy danh sách món ăn cho admin:', error);
+    throw error;
+  }
+};
+
+export const createAdminFood = async (foodData) => {
+  return await apiClient.post('/admin/foods', foodData);
+};
+
+export const updateAdminFood = async (id, foodData) => {
+  return await apiClient.put(`/admin/foods/${id}`, foodData);
+};
+
+export const deleteAdminFood = async (id) => {
+  return await apiClient.delete(`/admin/foods/${id}`);
+};
+
+/**
+ * Quản trị Nguyên liệu (CC-5.1)
+ */
+export const getAdminIngredients = async (category = 'all', search = '') => {
+  try {
+    return await apiClient.get('/admin/ingredients', { params: { category, search } });
+  } catch (error) {
+    console.error('Lỗi lấy nguyên liệu cho admin:', error);
+    throw error;
+  }
+};
+
+export const createAdminIngredient = async (ingData) => {
+  return await apiClient.post('/admin/ingredients', ingData);
+};
+
+export const updateAdminIngredient = async (id, ingData) => {
+  return await apiClient.put(`/admin/ingredients/${id}`, ingData);
+};
+
+export const deleteAdminIngredient = async (id) => {
+  return await apiClient.delete(`/admin/ingredients/${id}`);
+};
+
+/**
+ * Quản trị Công thức nấu ăn (CC-5.2)
+ */
+export const getAdminRecipes = async (search = '') => {
+  try {
+    return await apiClient.get('/admin/recipes', { params: { search } });
+  } catch (error) {
+    console.error('Lỗi lấy công thức cho admin:', error);
+    throw error;
+  }
+};
+
+export const createAdminRecipe = async (recipeData) => {
+  return await apiClient.post('/admin/recipes', recipeData);
+};
+
+export const updateAdminRecipe = async (id, recipeData) => {
+  return await apiClient.put(`/admin/recipes/${id}`, recipeData);
+};
+
+export const deleteAdminRecipe = async (id) => {
+  return await apiClient.delete(`/admin/recipes/${id}`);
+};
+
+/**
+ * Kiểm duyệt phản hồi AI & MLOps Pipeline (CC-5.3)
+ */
+export const getAdminFeedbacks = async (status = 'all') => {
+  try {
+    return await apiClient.get('/admin/feedbacks', { params: { status } });
+  } catch (error) {
+    console.error('Lỗi lấy danh sách phản hồi AI:', error);
+    throw error;
+  }
+};
+
+export const updateAdminFeedbackStatus = async (id, status) => {
+  return await apiClient.put(`/admin/feedbacks/${id}/status`, { status });
+};
+
+export const deleteAdminFeedback = async (id) => {
+  return await apiClient.delete(`/admin/feedbacks/${id}`);
+};
+
+export const exportAdminFeedbacksDataset = async () => {
+  return await apiClient.get('/admin/feedbacks/export');
+};
+
+export const seedAdminSampleFeedbacks = async () => {
+  return await apiClient.post('/admin/seed-sample-feedbacks');
+};
+
+/**
+ * Quản trị Người dùng & Phân quyền
+ */
+export const getAdminUsers = async () => {
+  try {
+    return await apiClient.get('/admin/users');
+  } catch (error) {
+    console.error('Lỗi lấy danh sách người dùng:', error);
+    throw error;
+  }
+};
+
+export const updateAdminUserRole = async (userId, role) => {
+  return await apiClient.put(`/admin/users/${userId}/role`, { role });
+};
+
 export default apiClient;

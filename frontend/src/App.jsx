@@ -10,12 +10,27 @@ import DashboardTab from './components/dashboard/DashboardTab';
 import VisionTab from './components/vision/VisionTab';
 import FridgeTab from './components/fridge/FridgeTab';
 import ProfileTab from './components/profile/ProfileTab';
+import AdminTab from './components/admin/AdminTab';
 import AuthModal from './components/auth/AuthModal';
 import { checkHealth, getFoods, getCurrentUser, getUserProfile } from './services/api';
 
 export default function App() {
-  // Trạng thái tab đang hoạt động: 'dashboard' | 'vision' | 'fridge' | 'profile'
-  const [activeTab, setActiveTab] = useState('dashboard');
+  // Hỗ trợ khởi tạo tab từ URL hash (#admin) hoặc tham số truy vấn (?tab=admin)
+  const getInitialTab = () => {
+    const hash = window.location.hash.replace('#', '');
+    if (['dashboard', 'vision', 'fridge', 'profile', 'admin'].includes(hash)) return hash;
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get('tab');
+    if (['dashboard', 'vision', 'fridge', 'profile', 'admin'].includes(tabParam)) return tabParam;
+    return 'dashboard';
+  };
+
+  const [activeTab, setActiveTabState] = useState(getInitialTab);
+  
+  const setActiveTab = (tab) => {
+    setActiveTabState(tab);
+    window.location.hash = tab;
+  };
   
   // Trạng thái kết nối Backend & PostgreSQL
   const [isOnline, setIsOnline] = useState(false);
@@ -98,12 +113,17 @@ export default function App() {
         currentUser={currentUser}
         onOpenProfile={() => setActiveTab('profile')}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        onOpenAdmin={() => setActiveTab('admin')}
       />
 
       {/* 2. Khung thân chính */}
       <div className="main-wrapper">
         {/* Sidebar bên trái trên máy tính */}
-        <DesktopSidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+        <DesktopSidebar 
+          activeTab={activeTab} 
+          setActiveTab={setActiveTab} 
+          currentUser={currentUser}
+        />
 
         {/* Nội dung trang theo từng tab */}
         <main className="main-content" id="main-content">
@@ -132,11 +152,22 @@ export default function App() {
               onOpenAuthModal={() => setIsAuthModalOpen(true)}
             />
           )}
+
+          {activeTab === 'admin' && (
+            <AdminTab 
+              currentUser={currentUser}
+              onSwitchToApp={() => setActiveTab('dashboard')}
+            />
+          )}
         </main>
       </div>
 
       {/* 3. Thanh điều hướng dưới đáy màn hình trên Mobile */}
-      <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
+      <BottomNav 
+        activeTab={activeTab} 
+        setActiveTab={setActiveTab} 
+        currentUser={currentUser}
+      />
 
       {/* 4. Hộp thoại Đăng nhập / Đăng ký */}
       <AuthModal 

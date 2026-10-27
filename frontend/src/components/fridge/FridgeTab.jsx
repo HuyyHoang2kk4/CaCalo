@@ -3,16 +3,17 @@
  * TABS: [Tủ lạnh & Gợi ý] | [Trợ lý AI]
  * ĐẦU VÀO: userProfile (truyền xuống ChatbotTab để cá nhân hóa tư vấn)
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ChefHat, Clock, Sparkles, Check, CheckCircle2, Bot, Refrigerator } from 'lucide-react';
 import ChatbotTab from './ChatbotTab';
+import { getIngredients, getRecipes } from '../../services/api';
 
 export default function FridgeTab({ userProfile }) {
   // Sub-tab: 'fridge' | 'chatbot'
   const [activeSubTab, setActiveSubTab] = useState('fridge');
 
-  // Danh sách nguyên liệu sẵn có trong tủ
-  const sampleIngredients = [
+  // Danh sách nguyên liệu mặc định
+  const defaultIngredients = [
     { id: 1, name: 'Ức gà', category: 'Thịt cá' },
     { id: 2, name: 'Trứng gà', category: 'Trứng sữa' },
     { id: 3, name: 'Cà chua', category: 'Rau củ' },
@@ -23,16 +24,7 @@ export default function FridgeTab({ userProfile }) {
     { id: 8, name: 'Cà rốt', category: 'Rau củ' },
   ];
 
-  // Trạng thái các nguyên liệu được tick chọn
-  const [selectedIngs, setSelectedIngs] = useState(['Ức gà', 'Cà chua']);
-
-  const toggleIng = (name) => {
-    setSelectedIngs(prev =>
-      prev.includes(name) ? prev.filter(item => item !== name) : [...prev, name]
-    );
-  };
-
-  const sampleRecipes = [
+  const defaultRecipes = [
     {
       id: 1,
       title: 'Ức gà áp chảo sốt cà chua',
@@ -64,6 +56,42 @@ export default function FridgeTab({ userProfile }) {
       ]
     }
   ];
+
+  const [ingredientsList, setIngredientsList] = useState(defaultIngredients);
+  const [recipesList, setRecipesList] = useState(defaultRecipes);
+
+  // Tải dữ liệu nguyên liệu và công thức thực tế từ PostgreSQL
+  useEffect(() => {
+    getIngredients().then(res => {
+      if (res?.data?.length > 0) setIngredientsList(res.data);
+    }).catch(() => {});
+
+    getRecipes().then(res => {
+      if (res?.data?.length > 0) {
+        const formatted = res.data.map(r => ({
+          id: r.id,
+          title: r.title,
+          desc: r.description,
+          cal: r.total_calories,
+          prepTime: r.prep_time_minutes + r.cook_time_minutes,
+          protein: r.protein_g,
+          matchedCount: 2,
+          totalCount: (r.ingredients || []).length || 2,
+          steps: r.instructions || []
+        }));
+        setRecipesList(formatted);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Trạng thái các nguyên liệu được tick chọn
+  const [selectedIngs, setSelectedIngs] = useState(['Ức gà', 'Cà chua']);
+
+  const toggleIng = (name) => {
+    setSelectedIngs(prev =>
+      prev.includes(name) ? prev.filter(item => item !== name) : [...prev, name]
+    );
+  };
 
   return (
     <div className="fridge-tab">
@@ -132,7 +160,7 @@ export default function FridgeTab({ userProfile }) {
         </div>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-          {sampleIngredients.map((ing) => {
+          {ingredientsList.map((ing) => {
             const isSelected = selectedIngs.includes(ing.name);
             return (
               <button
@@ -171,7 +199,7 @@ export default function FridgeTab({ userProfile }) {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {sampleRecipes.map((rec) => (
+          {recipesList.map((rec) => (
             <div key={rec.id} style={{ border: '1px solid var(--border-color)', borderRadius: 'var(--radius-inner)', padding: '16px', backgroundColor: 'var(--bg-card)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                 <div>
@@ -213,7 +241,6 @@ export default function FridgeTab({ userProfile }) {
               </div>
             </div>
           ))}
-        </div>
         </div>
       </section>
       </>)}

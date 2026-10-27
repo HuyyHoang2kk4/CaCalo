@@ -72,7 +72,7 @@ class AIFeedbackLog(Base):
     user_corrected_label = Column(String(150), nullable=False)
     corrected_food_id = Column(Integer, ForeignKey("foods.id", ondelete="SET NULL"), nullable=True)
 
-    status = Column(String(20), default="pending", index=True)  # 'pending', 'approved_for_training', 'rejected'
+    status = Column(String(50), default="pending", index=True)  # 'pending', 'approved_for_training', 'rejected'
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="feedbacks")

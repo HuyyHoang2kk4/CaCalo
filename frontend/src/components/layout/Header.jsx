@@ -4,9 +4,11 @@
  * ĐẦU RA: Giao diện Header với logo, trạng thái server và hồ sơ người dùng.
  */
 import React from 'react';
-import { Salad, User as UserIcon, LogIn } from 'lucide-react';
+import { Salad, User as UserIcon, LogIn, ShieldCheck } from 'lucide-react';
 
-export default function Header({ isOnline, totalFoods, currentUser, onOpenProfile, onOpenAuthModal }) {
+export default function Header({ isOnline, totalFoods, currentUser, onOpenProfile, onOpenAuthModal, onOpenAdmin }) {
+  const isAdmin = currentUser?.role === 'admin';
+
   return (
     <header className="app-header">
       <div className="brand-wrapper" onClick={onOpenProfile ? () => {} : undefined} style={{ cursor: 'pointer' }}>
@@ -20,6 +22,27 @@ export default function Header({ isOnline, totalFoods, currentUser, onOpenProfil
       </div>
 
       <div className="header-actions">
+        {/* Nút truy cập nhanh Quản trị Admin */}
+        <button
+          id="btn-admin-header"
+          className="btn btn-outline"
+          onClick={onOpenAdmin}
+          title="Mở Bảng Quản Trị Hệ Thống (Module 5)"
+          style={{
+            borderColor: isAdmin ? 'var(--color-accent)' : 'var(--border-color)',
+            backgroundColor: isAdmin ? 'var(--color-accent-light)' : 'transparent',
+            color: isAdmin ? 'var(--color-accent)' : 'var(--text-secondary)',
+            height: '36px',
+            padding: '0 12px',
+            fontSize: '0.82rem',
+            fontWeight: 600,
+            gap: '6px'
+          }}
+        >
+          <ShieldCheck size={16} />
+          <span>Quản trị {isAdmin && '⭐'}</span>
+        </button>
+
         {/* Đèn tín hiệu trạng thái kết nối Backend & PostgreSQL */}
         <div className="server-status-badge" title="Trạng thái kết nối Backend FastAPI & PostgreSQL">
           <span className={`status-dot ${isOnline ? 'online' : 'offline'}`} aria-hidden="true"></span>

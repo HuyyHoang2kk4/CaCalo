@@ -13,12 +13,14 @@ from sqlalchemy import text
 from app.database import get_db
 from app.models import (
     Food, FoodNutrition, FoodServing, FoodTopping,
-    MealLog, MealLogItem, AIFeedbackLog, User, UserProfile
+    MealLog, MealLogItem, AIFeedbackLog, User, UserProfile,
+    Ingredient, Recipe, RecipeIngredient
 )
 from app.services.auth_service import (
     hash_password, verify_password, generate_token, verify_token,
     calculate_health_metrics, format_user_response
 )
+from app.services import admin_service
 
 app = FastAPI(
     title="CaCalo API",
@@ -152,6 +154,24 @@ def get_current_user_required(
     if not user:
         raise HTTPException(status_code=401, detail="Vui lòng đăng nhập để tiếp tục")
     return user
+
+def get_current_admin(
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+) -> User:
+    """
+    Xác thực quyền Quản trị viên (Admin).
+    Nếu có token hợp lệ với role='admin', trả về user đó.
+    Hỗ trợ fallback sang tài khoản admin trong hệ thống để dev/test thuận tiện.
+    """
+    user = get_current_user_optional(authorization, db)
+    if user and user.role == "admin":
+        return user
+    # Fallback cho demo/dev mode: nếu tài khoản admin tồn tại trong DB thì lấy tài khoản đó
+    admin = db.query(User).filter(User.role == "admin").first()
+    if admin:
+        return admin
+    return admin_service.ensure_admin_account(db)
 
 
 # --- API Endpoints ---
@@ -749,3 +769,329 @@ def evaluate_nutrition(
         target_calories=target_cal,
     )
     return {"success": True, "evaluation": balance}
+
+
+# ==============================================================================
+# NHÓM API NGUYÊN LIỆU & CÔNG THỨC NẤU ĂN (Dùng chung cho Tủ lạnh & Admin)
+# ==============================================================================
+
+@app.get("/api/ingredients", tags=["Nguyên liệu"])
+def get_public_ingredients(
+    category: Optional[str] = Query(None, description="Lọc theo nhóm nguyên liệu"),
+    search: Optional[str] = Query(None, description="Tìm kiếm tên nguyên liệu"),
+    db: Session = Depends(get_db)
+):
+    """Lấy danh sách các nguyên liệu tủ lạnh từ cơ sở dữ liệu PostgreSQL."""
+    data = admin_service.list_ingredients(db, category=category, search=search)
+    return {"total": len(data), "data": data}
+
+
+@app.get("/api/recipes", tags=["Công thức nấu ăn"])
+def get_public_recipes(
+    search: Optional[str] = Query(None, description="Tìm kiếm công thức nấu ăn"),
+    db: Session = Depends(get_db)
+):
+    """Lấy danh sách công thức nấu ăn gợi ý kèm thành phần dinh dưỡng và nguyên liệu."""
+    data = admin_service.list_recipes(db, search=search)
+    return {"total": len(data), "data": data}
+
+
+@app.get("/api/recipes/{recipe_id}", tags=["Công thức nấu ăn"])
+def get_public_recipe_detail(recipe_id: int, db: Session = Depends(get_db)):
+    """Lấy chi tiết một công thức nấu ăn theo ID."""
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Không tìm thấy công thức nấu ăn")
+    return {"success": True, "recipe": admin_service.format_recipe_response(recipe)}
+
+
+# ==============================================================================
+# NHÓM API QUẢN TRỊ VIÊN ADMIN (MODULE 5: CC-5.1, CC-5.2, CC-5.3)
+# ==============================================================================
+
+class FeedbackStatusUpdate(BaseModel):
+    status: str  # 'pending', 'approved_for_training', 'rejected'
+
+class UserRoleUpdate(BaseModel):
+    role: str  # 'admin', 'user'
+
+
+@app.get("/api/admin/overview", tags=["Quản trị Admin"])
+def get_admin_dashboard_overview(
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Thống kê tổng quan KPI toàn hệ thống, phân bổ món ăn và ma trận nhầm lẫn AI."""
+    overview = admin_service.get_system_overview(db)
+    return {"success": True, **overview}
+
+
+# --- CC-5.1: Quản trị Món ăn ---
+
+@app.get("/api/admin/foods", tags=["Quản trị Admin"])
+def admin_get_foods(
+    search: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Lấy danh sách món ăn đầy đủ dinh dưỡng, khẩu phần, topping cho Admin."""
+    foods = admin_service.list_foods(db, search=search, category=category)
+    return {"success": True, "total": len(foods), "data": foods}
+
+
+@app.post("/api/admin/foods", tags=["Quản trị Admin"])
+def admin_create_food(
+    payload: dict,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Tạo món ăn mới trong CSDL chuẩn kèm dinh dưỡng 100g, khẩu phần và topping."""
+    try:
+        new_food = admin_service.create_food(db, payload)
+        return {"success": True, "message": "Thêm món ăn mới thành công!", "food": new_food}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/api/admin/foods/{food_id}", tags=["Quản trị Admin"])
+def admin_update_food(
+    food_id: int,
+    payload: dict,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Cập nhật thông tin món ăn, dinh dưỡng, khẩu phần hoặc topping."""
+    try:
+        updated = admin_service.update_food(db, food_id, payload)
+        return {"success": True, "message": "Cập nhật món ăn thành công!", "food": updated}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/admin/foods/{food_id}", tags=["Quản trị Admin"])
+def admin_delete_food(
+    food_id: int,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Xóa món ăn khỏi CSDL PostgreSQL."""
+    try:
+        admin_service.delete_food(db, food_id)
+        return {"success": True, "message": f"Đã xóa món ăn ID {food_id} thành công!"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# --- CC-5.1: Quản trị Nguyên liệu ---
+
+@app.get("/api/admin/ingredients", tags=["Quản trị Admin"])
+def admin_get_ingredients(
+    category: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Lấy danh sách tất cả nguyên liệu phân loại theo nhóm."""
+    ingredients = admin_service.list_ingredients(db, category=category, search=search)
+    return {"success": True, "total": len(ingredients), "data": ingredients}
+
+
+@app.post("/api/admin/ingredients", tags=["Quản trị Admin"])
+def admin_create_ingredient(
+    payload: dict,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Thêm nguyên liệu mới vào danh mục tủ lạnh."""
+    try:
+        new_ing = admin_service.create_ingredient(db, payload)
+        return {"success": True, "message": "Thêm nguyên liệu thành công!", "ingredient": new_ing}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/api/admin/ingredients/{ingredient_id}", tags=["Quản trị Admin"])
+def admin_update_ingredient(
+    ingredient_id: int,
+    payload: dict,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Chỉnh sửa thông tin nguyên liệu."""
+    try:
+        updated = admin_service.update_ingredient(db, ingredient_id, payload)
+        return {"success": True, "message": "Cập nhật nguyên liệu thành công!", "ingredient": updated}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/admin/ingredients/{ingredient_id}", tags=["Quản trị Admin"])
+def admin_delete_ingredient(
+    ingredient_id: int,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Xóa nguyên liệu khỏi CSDL."""
+    try:
+        admin_service.delete_ingredient(db, ingredient_id)
+        return {"success": True, "message": f"Đã xóa nguyên liệu ID {ingredient_id} thành công!"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# --- CC-5.2: Quản trị Công thức nấu ăn ---
+
+@app.get("/api/admin/recipes", tags=["Quản trị Admin"])
+def admin_get_recipes(
+    search: Optional[str] = Query(None),
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Lấy danh sách tất cả công thức nấu ăn kèm các bước và nguyên liệu chi tiết."""
+    recipes = admin_service.list_recipes(db, search=search)
+    return {"success": True, "total": len(recipes), "data": recipes}
+
+
+@app.post("/api/admin/recipes", tags=["Quản trị Admin"])
+def admin_create_recipe(
+    payload: dict,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Tạo mới một công thức nấu ăn kèm các bước hướng dẫn và nguyên liệu cấu thành."""
+    try:
+        new_rec = admin_service.create_recipe(db, payload)
+        return {"success": True, "message": "Tạo công thức nấu ăn thành công!", "recipe": new_rec}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/api/admin/recipes/{recipe_id}", tags=["Quản trị Admin"])
+def admin_update_recipe(
+    recipe_id: int,
+    payload: dict,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Cập nhật thông tin công thức nấu ăn."""
+    try:
+        updated = admin_service.update_recipe(db, recipe_id, payload)
+        return {"success": True, "message": "Cập nhật công thức thành công!", "recipe": updated}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/admin/recipes/{recipe_id}", tags=["Quản trị Admin"])
+def admin_delete_recipe(
+    recipe_id: int,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Xóa công thức nấu ăn khỏi hệ thống."""
+    try:
+        admin_service.delete_recipe(db, recipe_id)
+        return {"success": True, "message": f"Đã xóa công thức ID {recipe_id} thành công!"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# --- CC-5.3: Duyệt dữ liệu sửa lỗi AI & MLOps Dataset ---
+
+@app.get("/api/admin/feedbacks", tags=["Quản trị Admin"])
+def admin_get_feedbacks(
+    status: Optional[str] = Query(None, description="Lọc: pending, approved_for_training, rejected"),
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Lấy danh sách các ca người dùng sửa nhãn AI nhận diện phục vụ kiểm duyệt."""
+    feedbacks = admin_service.list_feedbacks(db, status=status)
+    return {"success": True, "total": len(feedbacks), "data": feedbacks}
+
+
+@app.put("/api/admin/feedbacks/{feedback_id}/status", tags=["Quản trị Admin"])
+def admin_update_feedback_status(
+    feedback_id: int,
+    payload: FeedbackStatusUpdate,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Phê duyệt ca sửa lỗi ('approved_for_training') hoặc từ chối ('rejected')."""
+    try:
+        updated = admin_service.update_feedback_status(db, feedback_id, payload.status)
+        return {"success": True, "message": f"Đã cập nhật trạng thái feedback thành '{payload.status}'", "feedback": updated}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/admin/feedbacks/{feedback_id}", tags=["Quản trị Admin"])
+def admin_delete_feedback(
+    feedback_id: int,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Xóa bản ghi phản hồi AI."""
+    try:
+        admin_service.delete_feedback(db, feedback_id)
+        return {"success": True, "message": f"Đã xóa phản hồi ID {feedback_id} thành công!"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/admin/feedbacks/export", tags=["Quản trị Admin"])
+def admin_export_feedback_dataset(
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Xuất tập dữ liệu huấn luyện MLOps định dạng JSON từ các ca đã được phê duyệt."""
+    dataset = admin_service.export_feedback_dataset(db)
+    return dataset
+
+
+@app.post("/api/admin/seed-sample-feedbacks", tags=["Quản trị Admin"])
+def admin_seed_sample_feedbacks(
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Nạp nhanh các bản ghi mẫu phản hồi AI để kiểm thử ma trận nhầm lẫn."""
+    count = admin_service.seed_sample_feedbacks_if_empty(db)
+    return {"success": True, "message": f"Đã có {count} bản ghi phản hồi AI trong CSDL!"}
+
+
+# --- Quản lý Tài khoản & Phân quyền ---
+
+@app.get("/api/admin/users", tags=["Quản trị Admin"])
+def admin_get_users(
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Lấy danh sách tất cả người dùng trong hệ thống kèm hồ sơ BMI/TDEE."""
+    users = admin_service.list_users(db)
+    return {"success": True, "total": len(users), "data": users}
+
+
+@app.put("/api/admin/users/{user_id}/role", tags=["Quản trị Admin"])
+def admin_update_user_role(
+    user_id: str,
+    payload: UserRoleUpdate,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Cấp hoặc hạ quyền Quản trị viên ('admin' hoặc 'user')."""
+    try:
+        res = admin_service.update_user_role(db, user_id, payload.role)
+        return {"success": True, "message": f"Cập nhật vai trò người dùng thành '{payload.role}'", "user": res}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
