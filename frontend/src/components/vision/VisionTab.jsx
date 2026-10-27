@@ -269,7 +269,7 @@ export default function VisionTab({ foods = [], currentUser, onOpenAuthModal }) 
         food_id: m?.food_id || null,
         serving_id: null,
         food_name: item.ten,
-        portion_size: `${gram}g (${item.ghi_chu || 'AI ước lượng'})`,
+        portion_size: `${gram}g`,
         portion_multiplier: 1.0,
         actual_gram: gram,
         calories: cal,
@@ -291,12 +291,14 @@ export default function VisionTab({ foods = [], currentUser, onOpenAuthModal }) 
       const res = await createMealLog(payload);
       setSaveStatus({
         type: 'success',
-        message: `Đã lưu thành công ${items.length} món vào ${mealLabels[selectedMealType] || 'nhật ký'} (Mã bữa ăn: #${res.meal_log_id})! Bạn có thể xem lại tại tab Tổng quan.`,
+        message: `Đã lưu thành công ${items.length} món vào ${mealLabels[selectedMealType] || 'nhật ký'} (Mã bữa ăn: #${res.meal_log_id})! Bạn có thể xem lại tại tab Lịch sử & Thống kê.`,
       });
     } catch (err) {
+      console.error('Lỗi lưu nhật ký:', err);
+      const detail = err.response?.data?.detail || err.message;
       setSaveStatus({
         type: 'error',
-        message: 'Lưu thất bại! Vui lòng đảm bảo PostgreSQL đang hoạt động.',
+        message: detail ? `Lưu thất bại: ${detail}` : 'Lưu thất bại! Vui lòng thử lại.',
       });
     } finally {
       setIsSubmitting(false);
@@ -358,13 +360,10 @@ export default function VisionTab({ foods = [], currentUser, onOpenAuthModal }) 
   return (
     <div className="vision-tab">
       {/* Tiêu đề */}
-      <div style={{ marginBottom: '20px' }}>
+      <div style={{ marginBottom: '16px' }}>
         <h1 style={{ fontSize: '1.4rem', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
           Quét Món Ăn & Tính Calo (AI Vision)
         </h1>
-        <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
-          Chụp ảnh bữa ăn → AI bóc tách từng thành phần → Đối chiếu CSDL tính Calo chuẩn xác.
-        </p>
       </div>
 
       {/* Alert Box */}
@@ -637,18 +636,8 @@ export default function VisionTab({ foods = [], currentUser, onOpenAuthModal }) 
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          <span style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)' }}>
                             {item.ten}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: '0.65rem', fontWeight: 600,
-                              padding: '2px 6px', borderRadius: '4px',
-                              backgroundColor: isMatched ? '#D1FAE5' : '#FEF3C7',
-                              color: isMatched ? '#065F46' : '#92400E',
-                            }}
-                          >
-                            {isMatched ? 'DB ✅' : 'AI ước lượng ⚠️'}
                           </span>
                         </div>
                         {item.ghi_chu && (
@@ -723,13 +712,6 @@ export default function VisionTab({ foods = [], currentUser, onOpenAuthModal }) 
                         </>
                       )}
                     </div>
-
-                    {/* Nguồn dữ liệu */}
-                    {isMatched && (
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                        <Info size={10} /> Nguồn: {m.source || 'Viện Dinh dưỡng Quốc gia'}
-                      </div>
-                    )}
                   </div>
                 );
               })}

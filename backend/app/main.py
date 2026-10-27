@@ -459,8 +459,8 @@ def create_meal_log(
             meal_log_id=meal_log.id,
             food_id=item.food_id,
             serving_id=item.serving_id,
-            food_name=item.food_name,
-            portion_size=item.portion_size,
+            food_name=item.food_name[:145],
+            portion_size=(item.portion_size or "M (1.0x)")[:250],
             portion_multiplier=item.portion_multiplier,
             actual_gram=item.actual_gram,
             calories=round(item.calories, 1),
@@ -524,6 +524,223 @@ def get_today_meal_logs(
         "total_fat": round(total_fat, 1),
         "items": items_list,
         "user_profile": user_profile_data
+    }
+
+
+@app.get("/api/meal-logs/history", tags=["Nhật ký bữa ăn"])
+def get_meal_logs_history(
+    limit: int = Query(100, ge=1, le=300),
+    offset: int = Query(0, ge=0),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    user_opt: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """
+    Lấy toàn bộ lịch sử bữa ăn thực tế (real) của riêng tài khoản đang đăng nhập,
+    sắp xếp theo thời gian mới nhất (ngày và giờ).
+    """
+    user = user_opt or db.query(User).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Vui lòng đăng nhập để xem lịch sử bữa ăn")
+
+    query = db.query(MealLog).filter(MealLog.user_id == user.id)
+
+    if start_date:
+        try:
+            s_d = datetime.strptime(start_date, "%Y-%m-%d").date()
+            query = query.filter(MealLog.log_date >= s_d)
+        except ValueError:
+            pass
+    if end_date:
+        try:
+            e_d = datetime.strptime(end_date, "%Y-%m-%d").date()
+            query = query.filter(MealLog.log_date <= e_d)
+        except ValueError:
+            pass
+
+    total = query.count()
+    logs = query.order_by(MealLog.log_date.desc(), MealLog.created_at.desc(), MealLog.id.desc()).offset(offset).limit(limit).all()
+
+    history_data = []
+    for l in logs:
+        items = [
+            {
+                "id": it.id,
+                "food_id": it.food_id,
+                "food_name": it.food_name,
+                "portion_size": it.portion_size,
+                "actual_gram": float(it.actual_gram or 0),
+                "calories": float(it.calories or 0),
+                "protein": float(it.protein or 0),
+                "carb": float(it.carb or 0),
+                "fat": float(it.fat or 0),
+                "toppings_applied": it.toppings_applied or [],
+                "image_proof_url": it.image_proof_url
+            }
+            for it in l.items
+        ]
+        history_data.append({
+            "id": l.id,
+            "user_id": l.user_id,
+            "log_date": str(l.log_date),
+            "created_at": l.created_at.isoformat() if l.created_at else None,
+            "meal_type": l.meal_type or "lunch",
+            "total_calories": float(l.total_calories or 0),
+            "total_protein": float(l.total_protein or 0),
+            "total_carb": float(l.total_carb or 0),
+            "total_fat": float(l.total_fat or 0),
+            "items": items
+        })
+
+    return {
+        "success": True,
+        "total": total,
+        "logs": history_data
+    }
+
+
+@app.delete("/api/meal-logs/{meal_log_id}", tags=["Nhật ký bữa ăn"])
+def delete_meal_log(
+    meal_log_id: int,
+    user_opt: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """Xóa một bản ghi bữa ăn khỏi nhật ký (chỉ xóa được bản ghi của chính tài khoản mình)."""
+    user = user_opt or db.query(User).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Vui lòng đăng nhập để thực hiện thao tác")
+
+    log = db.query(MealLog).filter(MealLog.id == meal_log_id).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bản ghi bữa ăn")
+
+    if user.role != "admin" and log.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Bạn không có quyền xóa bữa ăn của tài khoản khác")
+
+    db.delete(log)
+    db.commit()
+    return {"success": True, "message": "Đã xóa bản ghi bữa ăn thành công"}
+
+
+@app.get("/api/meal-logs/statistics", tags=["Nhật ký bữa ăn"])
+def get_meal_statistics(
+    user_opt: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """
+    Thống kê dinh dưỡng tổng hợp dành riêng cho tài khoản người dùng:
+    - Tổng số bữa ăn, số ngày ghi nhận
+    - Tổng calo, calo trung bình ngày
+    - Tỷ lệ các loại bữa ăn (Sáng / Trưa / Tối / Phụ)
+    - Top món ăn nạp nhiều nhất
+    - Xu hướng 7 ngày gần nhất so với mục tiêu TDEE
+    """
+    from datetime import timedelta
+    user = user_opt or db.query(User).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Vui lòng đăng nhập để xem thống kê")
+
+    target_cal = float(user.profile.target_calories) if (user.profile and user.profile.target_calories) else 2000.0
+    logs = db.query(MealLog).filter(MealLog.user_id == user.id).order_by(MealLog.log_date.asc(), MealLog.created_at.asc()).all()
+
+    if not logs:
+        return {
+            "success": True,
+            "has_data": False,
+            "total_meals": 0,
+            "total_days": 0,
+            "total_calories": 0.0,
+            "avg_daily_calories": 0.0,
+            "today_calories": 0.0,
+            "target_calories": target_cal,
+            "macro_totals": {"protein": 0.0, "carb": 0.0, "fat": 0.0},
+            "macro_percentages": {"protein": 25, "carb": 55, "fat": 20},
+            "meal_type_distribution": {"breakfast": 0, "lunch": 0, "dinner": 0, "snack": 0},
+            "top_foods": [],
+            "recent_days": []
+        }
+
+    total_meals = len(logs)
+    unique_dates = {l.log_date for l in logs}
+    total_days = len(unique_dates)
+    total_cal = sum(float(l.total_calories or 0) for l in logs)
+    total_pro = sum(float(l.total_protein or 0) for l in logs)
+    total_carb = sum(float(l.total_carb or 0) for l in logs)
+    total_fat = sum(float(l.total_fat or 0) for l in logs)
+
+    avg_daily_cal = round(total_cal / max(1, total_days), 1)
+
+    today = date.today()
+    today_logs = [l for l in logs if l.log_date == today]
+    today_cal = round(sum(float(l.total_calories or 0) for l in today_logs), 1)
+
+    macro_sum = total_pro + total_carb + total_fat
+    if macro_sum > 0:
+        p_pct = round((total_pro / macro_sum) * 100)
+        c_pct = round((total_carb / macro_sum) * 100)
+        f_pct = max(0, 100 - p_pct - c_pct)
+    else:
+        p_pct, c_pct, f_pct = 25, 55, 20
+
+    meal_dist = {"breakfast": 0, "lunch": 0, "dinner": 0, "snack": 0}
+    for l in logs:
+        mt = (l.meal_type or "lunch").lower()
+        if mt in meal_dist:
+            meal_dist[mt] += 1
+        else:
+            meal_dist["snack"] += 1
+
+    food_counter = {}
+    for l in logs:
+        for it in l.items:
+            fname = it.food_name
+            if fname not in food_counter:
+                food_counter[fname] = {"name": fname, "count": 0, "total_cal": 0.0, "total_gram": 0.0}
+            food_counter[fname]["count"] += 1
+            food_counter[fname]["total_cal"] += float(it.calories or 0)
+            food_counter[fname]["total_gram"] += float(it.actual_gram or 0)
+
+    top_foods = sorted(food_counter.values(), key=lambda x: (x["count"], x["total_cal"]), reverse=True)[:5]
+    for f in top_foods:
+        f["total_cal"] = round(f["total_cal"], 1)
+        f["total_gram"] = round(f["total_gram"], 1)
+
+    recent_days = []
+    for i in range(6, -1, -1):
+        d = today - timedelta(days=i)
+        d_logs = [l for l in logs if l.log_date == d]
+        c_sum = sum(float(l.total_calories or 0) for l in d_logs)
+        recent_days.append({
+            "date": d.strftime("%d/%m"),
+            "full_date": str(d),
+            "calories": round(c_sum, 1),
+            "target_calories": target_cal,
+            "meals_count": len(d_logs)
+        })
+
+    return {
+        "success": True,
+        "has_data": True,
+        "total_meals": total_meals,
+        "total_days": total_days,
+        "total_calories": round(total_cal, 1),
+        "avg_daily_calories": avg_daily_cal,
+        "today_calories": today_cal,
+        "target_calories": target_cal,
+        "macro_totals": {
+            "protein": round(total_pro, 1),
+            "carb": round(total_carb, 1),
+            "fat": round(total_fat, 1)
+        },
+        "macro_percentages": {
+            "protein": p_pct,
+            "carb": c_pct,
+            "fat": f_pct
+        },
+        "meal_type_distribution": meal_dist,
+        "top_foods": top_foods,
+        "recent_days": recent_days
     }
 
 

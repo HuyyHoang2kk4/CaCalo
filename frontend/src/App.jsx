@@ -7,12 +7,12 @@
  * - Header thông minh: Avatar dropdown hỗ trợ Đăng nhập, Đăng xuất và đổi giao diện Sáng / Tối.
  */
 import React, { useState, useEffect } from 'react';
-import { Salad, Flame, Refrigerator, User as UserIcon } from 'lucide-react';
+import { Salad, Flame, History, User as UserIcon } from 'lucide-react';
 import Header from './components/layout/Header';
 import { BottomNav, DesktopSidebar } from './components/layout/Navigation';
 import DashboardTab from './components/dashboard/DashboardTab';
 import VisionTab from './components/vision/VisionTab';
-import FridgeTab from './components/fridge/FridgeTab';
+import HistoryTab from './components/history/HistoryTab';
 import ProfileTab from './components/profile/ProfileTab';
 import AdminTab from './components/admin/AdminTab';
 import AuthModal from './components/auth/AuthModal';
@@ -37,10 +37,10 @@ export default function App() {
   // 3. Tab đang chọn: Khách chưa đăng nhập mặc định vào tab 'vision' (Quét món ăn)
   const getInitialTab = () => {
     const hash = window.location.hash.replace('#', '');
-    if (['dashboard', 'vision', 'fridge', 'profile', 'admin'].includes(hash)) return hash;
+    if (['dashboard', 'vision', 'history', 'profile', 'admin'].includes(hash)) return hash;
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab');
-    if (['dashboard', 'vision', 'fridge', 'profile', 'admin'].includes(tabParam)) return tabParam;
+    if (['dashboard', 'vision', 'history', 'profile', 'admin'].includes(tabParam)) return tabParam;
     return 'vision'; // Mặc định mở Quét món ăn để khách trải nghiệm ngay
   };
 
@@ -209,15 +209,19 @@ export default function App() {
             />
           )}
 
-          {/* TAB 3: TỦ LẠNH & GỢI Ý (Yêu cầu đăng nhập để lưu trữ nguyên liệu cá nhân) */}
-          {activeTab === 'fridge' && (
+          {/* TAB 3: LỊCH SỬ BỮA ĂN & THỐNG KÊ DINH DƯỠNG (Dành riêng cho từng tài khoản) */}
+          {activeTab === 'history' && (
             currentUser ? (
-              <FridgeTab userProfile={userProfile} />
+              <HistoryTab 
+                currentUser={currentUser} 
+                userProfile={userProfile} 
+                onSwitchToVision={() => setActiveTab('vision')}
+              />
             ) : (
               <LockedFeatureView 
-                featureName="Tủ Lạnh Thông Minh & Gợi Ý Thực Đơn"
-                description="Đăng nhập để quản lý kho nguyên liệu thực phẩm trong tủ lạnh của bạn và nhận công thức nấu ăn do AI gợi ý tối ưu theo calo mục tiêu."
-                icon={Refrigerator}
+                featureName="Lịch Sử Bữa Ăn & Thống Kê Dinh Dưỡng"
+                description="Đăng nhập để theo dõi lịch sử bữa ăn thực tế theo ngày & giờ, kèm bảng thống kê calo và dinh dưỡng cá nhân hóa của riêng bạn."
+                icon={History}
                 onOpenAuth={() => setIsAuthModalOpen(true)}
                 onSwitchToVision={() => setActiveTab('vision')}
               />

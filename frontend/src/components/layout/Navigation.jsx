@@ -4,12 +4,12 @@
  * ĐẦU RA: Giao diện chuyển đổi tab mượt mà.
  */
 import React from 'react';
-import { LayoutDashboard, Camera, Refrigerator, User, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, Camera, History, User, ShieldCheck } from 'lucide-react';
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'vision', label: 'Quét món ăn', icon: Camera },
-  { id: 'fridge', label: 'Tủ lạnh & Gợi ý', icon: Refrigerator },
+  { id: 'history', label: 'Lịch sử & Thống kê', icon: History },
   { id: 'profile', label: 'Cá nhân hóa', icon: User },
 ];
 

@@ -81,6 +81,42 @@ export const getTodayMealLogs = async () => {
 };
 
 /**
+ * MỤC ĐÍCH: Lấy toàn bộ lịch sử bữa ăn thực tế (real) của riêng tài khoản người dùng theo ngày và giờ.
+ */
+export const getMealHistory = async (params = {}) => {
+  try {
+    return await apiClient.get('/meal-logs/history', { params });
+  } catch (error) {
+    console.error('Lỗi lấy lịch sử bữa ăn:', error);
+    throw error;
+  }
+};
+
+/**
+ * MỤC ĐÍCH: Xóa một bản ghi bữa ăn khỏi nhật ký cá nhân.
+ */
+export const deleteMealLog = async (logId) => {
+  try {
+    return await apiClient.delete(`/meal-logs/${logId}`);
+  } catch (error) {
+    console.error('Lỗi xóa bữa ăn:', error);
+    throw error;
+  }
+};
+
+/**
+ * MỤC ĐÍCH: Lấy thống kê dinh dưỡng cá nhân hóa tổng hợp của tài khoản.
+ */
+export const getMealStatistics = async () => {
+  try {
+    return await apiClient.get('/meal-logs/statistics');
+  } catch (error) {
+    console.error('Lỗi lấy thống kê dinh dưỡng:', error);
+    throw error;
+  }
+};
+
+/**
  * MỤC ĐÍCH: Gửi phản hồi người dùng sửa lỗi AI vào PostgreSQL (bảng ai_feedback_logs).
  */
 export const submitAIFeedback = async (feedbackData) => {

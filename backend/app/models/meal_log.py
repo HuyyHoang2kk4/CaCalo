@@ -36,7 +36,7 @@ class MealLogItem(Base):
     serving_id = Column(Integer, ForeignKey("food_servings.id", ondelete="SET NULL"), nullable=True)
 
     food_name = Column(String(150), nullable=False)
-    portion_size = Column(String(50), default="M (1.0x)")  # Nhãn khẩu phần (S, M, L)
+    portion_size = Column(String(255), default="M (1.0x)")  # Nhãn khẩu phần (S, M, L)
     portion_multiplier = Column(Numeric(4, 2), default=1.0)  # Hệ số nhân tính toán (0.75, 1.0, 1.25)
     actual_gram = Column(Numeric(6, 1), nullable=False)
 
