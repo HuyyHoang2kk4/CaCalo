@@ -193,10 +193,22 @@ export default function App() {
           )}
 
           {activeTab === 'admin' && (
-            <AdminTab 
-              currentUser={currentUser}
-              onSwitchToApp={() => setActiveTab('dashboard')}
-            />
+            currentUser?.role === 'admin' ? (
+              <AdminTab 
+                currentUser={currentUser}
+                onSwitchToApp={() => setActiveTab('dashboard')}
+              />
+            ) : (
+              <div className="card" style={{ padding: '48px 24px', textAlign: 'center', maxWidth: '520px', margin: '40px auto' }}>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '8px' }}>Không có quyền truy cập</h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '16px' }}>
+                  Khu vực Quản trị chỉ dành riêng cho tài khoản Quản trị viên (Admin).
+                </p>
+                <button className="btn btn-primary" onClick={() => setActiveTab('dashboard')}>
+                  Quay lại Dashboard
+                </button>
+              </div>
+            )
           )}
         </main>
       </div>
